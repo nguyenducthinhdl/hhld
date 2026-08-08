@@ -34,6 +34,7 @@ All modules are interface-first for loose coupling, testing, and backtest/live s
 
 | Component | Role | Submodules |
 |-----------|------|------------|
+| **Config** | Parameterize symbols, venues, trading conditions | Load/validate JSON (and later env); feeds Strategy/Risk/Execution |
 | **Trading Core** | Decide volume and price of buy/sell orders | Connection, Risk Management, Testing, Strategy-Trading, PnL |
 | **Backtesting** | Simulate strategy performance on historical ticks | Simulation (ticks + strategy → PnL), Visualization (PnL over time / alpha) |
 | **Data Warehouse** | Convert crawled market data into store for backtest | Crawl → normalize → persist |

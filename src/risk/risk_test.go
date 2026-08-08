@@ -15,7 +15,8 @@ var _ risk.Risk = (*stubRisk)(nil)
 // stubRisk rejects empty legs or any leg with empty price (miss-more stub).
 type stubRisk struct{}
 
-func (stubRisk) Evaluate(ctx context.Context, d strategy.Decision) (risk.Verdict, error) {
+func (stubRisk) Evaluate(ctx context.Context, d strategy.Decision, mkt risk.MarketView) (risk.Verdict, error) {
+	_ = mkt
 	if len(d.Legs) == 0 {
 		return risk.Verdict{OK: false, Reason: "no legs"}, nil
 	}
@@ -30,7 +31,7 @@ func (stubRisk) Evaluate(ctx context.Context, d strategy.Decision) (risk.Verdict
 	return risk.Verdict{OK: true, Reason: "ok"}, nil
 }
 
-func TestRisk_AcceptsValidArbDecision(t *testing.T) {
+func TestStubRisk_AcceptsValidArbDecision(t *testing.T) {
 	r := stubRisk{}
 	v, err := r.Evaluate(context.Background(), strategy.Decision{
 		TraceID: "t1",
@@ -38,7 +39,7 @@ func TestRisk_AcceptsValidArbDecision(t *testing.T) {
 			{Venue: "hyperliquid", Symbol: "BTCUSD", Kind: exchange.KindPerp, Side: exchange.SideBuy, Price: "100", Size: "1"},
 			{Venue: "grvt", Symbol: "BTCUSD", Kind: exchange.KindPerp, Side: exchange.SideSell, Price: "101", Size: "1"},
 		},
-	})
+	}, risk.MarketView{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -47,7 +48,7 @@ func TestRisk_AcceptsValidArbDecision(t *testing.T) {
 	}
 }
 
-func TestRisk_RejectsIncompleteHedge(t *testing.T) {
+func TestStubRisk_RejectsIncompleteHedge(t *testing.T) {
 	r := stubRisk{}
 	v, err := r.Evaluate(context.Background(), strategy.Decision{
 		TraceID: "t1",
@@ -55,7 +56,7 @@ func TestRisk_RejectsIncompleteHedge(t *testing.T) {
 		Legs: []strategy.Leg{
 			{Venue: "polymarket", Symbol: "BTC-UP", Kind: exchange.KindPrediction, Side: exchange.SideBuy, Price: "0.55", Size: "10"},
 		},
-	})
+	}, risk.MarketView{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,9 +65,9 @@ func TestRisk_RejectsIncompleteHedge(t *testing.T) {
 	}
 }
 
-func TestRisk_RejectsEmptyLegs(t *testing.T) {
+func TestStubRisk_RejectsEmptyLegs(t *testing.T) {
 	r := stubRisk{}
-	v, err := r.Evaluate(context.Background(), strategy.Decision{TraceID: "t1"})
+	v, err := r.Evaluate(context.Background(), strategy.Decision{TraceID: "t1"}, risk.MarketView{})
 	if err != nil {
 		t.Fatal(err)
 	}

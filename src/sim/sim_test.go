@@ -26,7 +26,8 @@ func (passStrategy) OnBooks(ctx context.Context, books []exchange.Book) ([]strat
 
 type passRisk struct{}
 
-func (passRisk) Evaluate(ctx context.Context, d strategy.Decision) (risk.Verdict, error) {
+func (passRisk) Evaluate(ctx context.Context, d strategy.Decision, mkt risk.MarketView) (risk.Verdict, error) {
+	_ = mkt
 	return risk.Verdict{OK: true}, nil
 }
 

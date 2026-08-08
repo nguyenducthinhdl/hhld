@@ -8,6 +8,7 @@ Go module `github.com/nguyenducthinhdl/hhld`. Packages under [`src/`](src/) (P0 
 
 | Package | Role |
 |---------|------|
+| [`src/config`](src/config/) | Symbols, venues, trading conditions (parameterized) |
 | [`src/exchange`](src/exchange/) | Venue-agnostic Exchange boundary (+ `fake` feed, `Clock`) |
 | [`src/strategy`](src/strategy/) | Trading decisions (arb, hedge, …) |
 | [`src/risk`](src/risk/) | Miss-more risk gates |
@@ -15,6 +16,8 @@ Go module `github.com/nguyenducthinhdl/hhld`. Packages under [`src/`](src/) (P0 
 | [`src/sim`](src/sim/) | Backtest simulation |
 | [`src/warehouse`](src/warehouse/) | Market data store |
 | [`src/admin`](src/admin/) | Order / PnL audit |
+
+Example config: [`configs/default.json`](configs/default.json).
 
 ```bash
 go build ./...

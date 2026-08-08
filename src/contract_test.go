@@ -24,7 +24,7 @@ func TestDecisionFlowsToOrderRequests(t *testing.T) {
 		Reason: "hedge",
 	}
 
-	v, err := acceptRisk{}.Evaluate(ctx, d)
+	v, err := acceptRisk{}.Evaluate(ctx, d, risk.MarketView{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -48,7 +48,8 @@ func TestDecisionFlowsToOrderRequests(t *testing.T) {
 
 type acceptRisk struct{}
 
-func (acceptRisk) Evaluate(ctx context.Context, d strategy.Decision) (risk.Verdict, error) {
+func (acceptRisk) Evaluate(ctx context.Context, d strategy.Decision, mkt risk.MarketView) (risk.Verdict, error) {
+	_ = mkt
 	if len(d.Legs) == 0 {
 		return risk.Verdict{OK: false, Reason: "no legs"}, nil
 	}

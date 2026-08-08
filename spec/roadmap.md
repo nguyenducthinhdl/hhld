@@ -43,12 +43,14 @@ flowchart LR
 
 ### P3 — Arb strategy (paper)
 
+- **Status:** [done](roadmap/p3.md)
 - **Goal**: Detect gaps on fake dual-venue books; emit paper buy/sell decisions.
 - **Done when**: simulated arb produces paper orders for multi-symbol config (BTCUSD first).
 - **Skip**: fee/latency gates (next phase), live feeds.
 
 ### P4 — Risk gates (miss-more doctrine)
 
+- **Status:** [done](roadmap/p4.md)
 - **Goal**: Reject trades that do not survive worst-case fees, latency, and partial-fill assumptions.
 - **Done when**: risk module blocks negative-edge paper trades; preferred behavior is miss opportunities.
 - **Skip**: live capital, exchange-specific quirks beyond modeled costs.

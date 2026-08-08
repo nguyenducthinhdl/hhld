@@ -6,7 +6,8 @@ Constitution for implementation choices. Optimize for a solo operator: speed of 
 
 - **Primary language: Go** (modules, clear interfaces, enough throughput for paper/live order paths).
 - Package boundaries stay interface-first so a latency-critical path could move to Rust later without rewriting strategy logic.
-- Suggested packages under `src/`: `exchange`, `strategy`, `risk`, `pnl`, `sim`, `warehouse`, `admin` (names may evolve; boundaries must not).
+- Suggested packages under `src/`: `config`, `exchange`, `strategy`, `risk`, `pnl`, `sim`, `warehouse`, `admin` (names may evolve; boundaries must not).
+- **`config`**: parameterizes symbols, venues, trading conditions (size, min gap, timeouts) for other modules — no hard-coded BTCUSD in strategy logic.
 
 ## Exchange layer
 
