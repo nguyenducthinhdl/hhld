@@ -57,15 +57,16 @@ flowchart LR
 
 ### P5 — PnL and admin audit
 
+- **Status:** [done](roadmap/p5.md)
 - **Goal**: Persist paper orders and PnL; basic audit via logs or simple store.
 - **Done when**: every paper trade is reconstructable (order store + PnL).
 - **Skip**: polished UI, visualization charts.
 
 ### P6 — Backtest simulation
 
-- **Goal**: Replay ticks through the same Strategy/Risk path → PnL series.
-- **Done when**: Simulation module accepts tick input + strategy, outputs PnL.
-- **Skip**: rich Visualization Module (CSV is enough).
+- **Goal**: Replay ticks/books through Strategy/Risk → PnL; winning rate + distribution `(symbol, gap, volumes, exchanges, time)` for Risk calibration.
+- **Done when**: Simulation accepts market input + strategy, outputs PnL; Analyzer reports win rate/distribution.
+- **Skip**: rich Visualization Module (CSV is enough); production ML.
 
 ### P7 — Crawl and warehouse
 

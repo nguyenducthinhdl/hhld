@@ -8,11 +8,15 @@ HHLD is a one-person trading system built for **capital efficiency and safety**.
 
 Detect arbitrage gaps across two venues, decide size and price in Trading Core, and **paper-trade** those decisions. Persist orders and PnL for audit. No live capital at risk until later phases explicitly allow it.
 
+How paper arb works in detail: [trading.md](trading.md).
+
 Symbols are **multi-symbol from day one** (BTCUSD is the first concrete pair; others via config, not hard-coded into strategy logic).
 
 ## Risk doctrine
 
 Prefer **never lose on fees or latency**. Model worst-case costs (fees, latency, partial fills, networking). Only take trades where modeled edge survives those costs. Miss opportunities rather than take bad fills.
+
+**Risk Management** is abstracted in `risk`: hard **gates** (miss-more Evaluate) plus pluggable **estimation** (Value at Risk, winning-rate prediction). Go sim provides empirical calibration; **ML/research stays in a separate side project** and plugs in through `Estimator` (see [tech-stack.md](tech-stack.md)).
 
 Networking and unknown order acks: see [networking.md](networking.md) (fail closed on bad books; reconcile on uncertain orders; stop-and-recover unpaired legs).
 
@@ -35,8 +39,8 @@ All modules are interface-first for loose coupling, testing, and backtest/live s
 | Component | Role | Submodules |
 |-----------|------|------------|
 | **Config** | Parameterize symbols, venues, trading conditions | Load/validate JSON (and later env); feeds Strategy/Risk/Execution |
-| **Trading Core** | Decide volume and price of buy/sell orders | Connection, Risk Management, Testing, Strategy-Trading, PnL |
-| **Backtesting** | Simulate strategy performance on historical ticks | Simulation (ticks + strategy → PnL), Visualization (PnL over time / alpha) |
+| **Trading Core** | Decide volume and price of buy/sell orders | Connection, Risk Management (gates + VaR/win-rate estimators), Testing, Strategy-Trading, PnL |
+| **Backtesting** | Simulate strategy performance on historical ticks | Simulation (replay → PnL; winning rate / distribution), Visualization (PnL over time / alpha) |
 | **Data Warehouse** | Convert crawled market data into store for backtest | Crawl → normalize → persist |
 | **Administrator** | Auditable record of trading | PnL, stored trading orders |
 

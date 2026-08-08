@@ -1,0 +1,139 @@
+package admin_test
+
+import (
+	"context"
+	"strconv"
+	"testing"
+	"time"
+
+	"github.com/nguyenducthinhdl/hhld/src/admin"
+	"github.com/nguyenducthinhdl/hhld/src/exchange"
+	"github.com/nguyenducthinhdl/hhld/src/exchange/fake"
+	"github.com/nguyenducthinhdl/hhld/src/pnl"
+	"github.com/nguyenducthinhdl/hhld/src/strategy"
+)
+
+func TestMemory_RecordAndListByTrace(t *testing.T) {
+	ctx := context.Background()
+	tr := pnl.NewMemory()
+	aud := admin.NewMemory(tr)
+
+	rec := admin.OrderRecord{
+		OrderID: "o1", ClientOrderID: "c1", TraceID: "trace-1",
+		Venue: "hyperliquid", Symbol: "BTCUSD", Kind: exchange.KindPerp,
+		Side: exchange.SideBuy, Price: "100", Size: "1", Status: "accepted",
+		Time: time.Unix(1, 0).UTC(),
+	}
+	if err := aud.RecordOrder(ctx, rec); err != nil {
+		t.Fatal(err)
+	}
+	got, err := aud.ListOrders(ctx, admin.Filter{TraceID: "trace-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].OrderID != "o1" {
+		t.Fatalf("list: %+v", got)
+	}
+}
+
+func TestRecordPaperDecision_ReconstructableArb(t *testing.T) {
+	ctx := context.Background()
+	dual := fake.NewDual("hyperliquid", "grvt", time.Unix(1, 0).UTC())
+	tr := pnl.NewMemory()
+	aud := admin.NewMemory(tr)
+
+	d := strategy.Decision{
+		TraceID: "arb-paper-1",
+		Legs: []strategy.Leg{
+			{Venue: "hyperliquid", Symbol: "BTCUSD", Kind: exchange.KindPerp, Side: exchange.SideBuy, Price: "100", Size: "1"},
+			{Venue: "grvt", Symbol: "BTCUSD", Kind: exchange.KindPerp, Side: exchange.SideSell, Price: "101", Size: "1"},
+		},
+		Reason: "test-gap",
+	}
+	venues := strategy.Venues{"hyperliquid": dual.A, "grvt": dual.B}
+	results, err := strategy.PlaceDecision(ctx, venues, d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := admin.RecordPaperDecision(ctx, aud, tr, d, results); err != nil {
+		t.Fatal(err)
+	}
+
+	orders, err := aud.ListOrders(ctx, admin.Filter{TraceID: "arb-paper-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(orders) != 2 {
+		t.Fatalf("want 2 orders, got %+v", orders)
+	}
+	for _, o := range orders {
+		if o.Status != "accepted" || o.OrderID == "" {
+			t.Fatalf("order: %+v", o)
+		}
+	}
+
+	fills := tr.Fills()
+	if len(fills) != 2 {
+		t.Fatalf("want 2 fills, got %d", len(fills))
+	}
+
+	snap, err := aud.PnL(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := strconv.ParseFloat(snap.Realized, 64)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got < 0.999 || got > 1.001 {
+		t.Fatalf("want realized ~1, got %s", snap.Realized)
+	}
+}
+
+func TestRecordPaperDecision_PartialLegStillAuditable(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Millisecond)
+	defer cancel()
+
+	dual := fake.NewDual("hyperliquid", "grvt", time.Unix(1, 0).UTC())
+	dual.A.SetOrderDelay(80 * time.Millisecond)
+	dual.B.SetOrderDelay(0)
+
+	tr := pnl.NewMemory()
+	aud := admin.NewMemory(tr)
+	d := strategy.Decision{
+		TraceID: "arb-partial",
+		Legs: []strategy.Leg{
+			{Venue: "hyperliquid", Symbol: "BTCUSD", Kind: exchange.KindPerp, Side: exchange.SideBuy, Price: "100", Size: "1"},
+			{Venue: "grvt", Symbol: "BTCUSD", Kind: exchange.KindPerp, Side: exchange.SideSell, Price: "101", Size: "1"},
+		},
+	}
+	results, err := strategy.PlaceDecision(ctx, strategy.Venues{"hyperliquid": dual.A, "grvt": dual.B}, d)
+	if err == nil {
+		t.Fatal("expected place error from timeout")
+	}
+	if err := admin.RecordPaperDecision(context.Background(), aud, tr, d, results); err != nil {
+		t.Fatal(err)
+	}
+	orders, err := aud.ListOrders(context.Background(), admin.Filter{TraceID: "arb-partial"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(orders) != 2 {
+		t.Fatalf("want 2 order records, got %+v", orders)
+	}
+	var accepted, errored int
+	for _, o := range orders {
+		switch o.Status {
+		case "accepted":
+			accepted++
+		case "error":
+			errored++
+		}
+	}
+	if accepted != 1 || errored != 1 {
+		t.Fatalf("want 1 accepted + 1 error, got %+v", orders)
+	}
+	if len(tr.Fills()) != 1 {
+		t.Fatalf("want 1 fill for successful leg, got %d", len(tr.Fills()))
+	}
+}

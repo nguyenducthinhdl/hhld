@@ -28,9 +28,22 @@ Constitution for implementation choices. Optimize for a solo operator: speed of 
 
 ## Backtesting
 
-- Reuse the same **Strategy** and **Risk** interfaces as the paper path.
-- Simulation: tick replay → order decisions → PnL series.
+- **Runtime language: Go** — same `Strategy` / `Risk` / `Exchange` path as paper trading (no dual implementation).
+- Simulation: tick/book replay → order decisions → PnL series.
+- **Winning analysis** (same `sim.Analyzer` abstraction): overall **winning rate**, and **winning distribution** over dimensions `(symbol, gap, volume1, volume2, exchange1, exchange2, time)` for Risk calibration.
 - Visualization later: CSV export first; minimal plots after PnL is trustworthy.
+
+## Risk Management
+
+- **Hard gate** (`Risk.Evaluate` / `Gate`): miss-more fees, latency, staleness, concurrency.
+- **Estimation** (`Estimator`): Value at Risk and/or predicted winning rate — detective formulas / empirical stats from Go sim first; richer models come from the research side project and plug in via this interface (`Method`: formula | historical | ml).
+- **Manager** composes gate + estimator so paper can stay gate-only while later paths add WinRate/VaR thresholds.
+
+## Research (side project)
+
+- **Not in this repo’s runtime.** ML training, notebooks, and heavy statistical research live in a **separate side project** (typically Python).
+- Contract with HHLD: consume exported sim/warehouse artifacts (e.g. Parquet/CSV of fills, PnL, winning distributions); publish calibrated priors or model artifacts that a Go `Estimator` implementation can load.
+- Keeps solo trading system maintainable in one language while allowing research tooling to evolve independently.
 
 ## Ops and observability
 
@@ -40,8 +53,8 @@ Constitution for implementation choices. Optimize for a solo operator: speed of 
 - Networking / book-stale / unknown-ack doctrine: [networking.md](networking.md).
 - Concurrent orders / per-hedge Risk ordering: [concurrency.md](concurrency.md).
 
-## Explicitly out of scope (early)
+## Explicitly out of scope (this repo)
 
 - Kubernetes, multi-region, auto-scaling fleets
-- Prediction / ML training stack (Polymarket as an `Exchange` adapter is planned later; not ML)
+- Research/ML training stack and notebooks (side project only)
 - Real capital wiring until roadmap opens that gate
