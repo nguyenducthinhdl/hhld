@@ -2,6 +2,8 @@
 
 High-level implementation order in **~1–3 day** slices for a solo builder. Interfaces and simulated arb come before crawling real data.
 
+**Implementation status:** track and mark phases done under [`spec/roadmap/`](roadmap/README.md) (one file per phase). Update that board when each phase is finished.
+
 ```mermaid
 flowchart LR
   P0[P0_repo_skeleton] --> P1[P1_exchange_interfaces]
@@ -20,18 +22,21 @@ flowchart LR
 
 ### P0 — Repo skeleton
 
+- **Status:** [done](roadmap/p0.md)
 - **Goal**: Go module layout, package stubs, constitution linked from README.
 - **Done when**: `go` packages exist as empty/skeleton dirs; `spec/` is discoverable.
 - **Skip**: adapters, strategies, infra.
 
 ### P1 — Core interfaces
 
+- **Status:** [done](roadmap/p1.md)
 - **Goal**: Define `Exchange`, Strategy, Risk, PnL (and related) interfaces only. `Exchange` must fit crypto books **and** prediction-market venues (e.g. Polymarket outcomes)—instrument/symbol types stay venue-agnostic. Strategy/Risk/PnL contracts must allow a **multi-leg hedge** (prediction up/down + HL/GRVT) later without breaking the crypto-only arb path.
 - **Done when**: compile-time contracts exist; no real venue or market data.
 - **Skip**: implementations beyond stubs needed to compile; no Polymarket adapter or hedge strategy yet.
 
 ### P2 — Fake tick feed
 
+- **Status:** [done](roadmap/p2.md)
 - **Goal**: Deterministic dual-venue fake ticks + clock for tests.
 - **Done when**: fake books/ticks drive a consumer without network I/O.
 - **Skip**: crawl, warehouse, live websockets.

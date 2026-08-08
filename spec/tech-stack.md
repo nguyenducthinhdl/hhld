@@ -6,7 +6,7 @@ Constitution for implementation choices. Optimize for a solo operator: speed of 
 
 - **Primary language: Go** (modules, clear interfaces, enough throughput for paper/live order paths).
 - Package boundaries stay interface-first so a latency-critical path could move to Rust later without rewriting strategy logic.
-- Suggested packages: `exchange`, `strategy`, `risk`, `pnl`, `sim`, `warehouse`, `admin` (names may evolve; boundaries must not).
+- Suggested packages under `src/`: `exchange`, `strategy`, `risk`, `pnl`, `sim`, `warehouse`, `admin` (names may evolve; boundaries must not).
 
 ## Exchange layer
 
@@ -36,6 +36,8 @@ Constitution for implementation choices. Optimize for a solo operator: speed of 
 - Deploy on **one medium VM or container**.
 - Structured logs with **order / trace IDs** so mismatched or lost orders are diagnosable.
 - Metrics dashboards only when paper live feeds prove the need.
+- Networking / book-stale / unknown-ack doctrine: [networking.md](networking.md).
+- Concurrent orders / per-hedge Risk ordering: [concurrency.md](concurrency.md).
 
 ## Explicitly out of scope (early)
 

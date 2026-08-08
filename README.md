@@ -1,6 +1,25 @@
 # HHLD finance
 
-**Constitution:** [spec/mission.md](spec/mission.md) · [spec/tech-stack.md](spec/tech-stack.md) · [spec/roadmap.md](spec/roadmap.md)
+**Constitution:** [spec/mission.md](spec/mission.md) · [spec/tech-stack.md](spec/tech-stack.md) · [spec/roadmap.md](spec/roadmap.md) · [spec/networking.md](spec/networking.md) · [spec/concurrency.md](spec/concurrency.md) · [implementation](spec/roadmap/README.md)
+
+## Layout (P0)
+
+Go module `github.com/nguyenducthinhdl/hhld`. Packages under [`src/`](src/) (P0 skeleton, P1 interfaces):
+
+| Package | Role |
+|---------|------|
+| [`src/exchange`](src/exchange/) | Venue-agnostic Exchange boundary (+ `fake` feed, `Clock`) |
+| [`src/strategy`](src/strategy/) | Trading decisions (arb, hedge, …) |
+| [`src/risk`](src/risk/) | Miss-more risk gates |
+| [`src/pnl`](src/pnl/) | Profit and loss |
+| [`src/sim`](src/sim/) | Backtest simulation |
+| [`src/warehouse`](src/warehouse/) | Market data store |
+| [`src/admin`](src/admin/) | Order / PnL audit |
+
+```bash
+go build ./...
+go test ./...
+```
 
 ## Input from the owner
 - This is the project aims to do a trading system to gain money efficiency and safety 

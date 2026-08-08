@@ -1,0 +1,21 @@
+# Binaries
+/bin/
+/dist/
+*.exe
+*.test
+*.out
+hhld
+
+# Go workspace / cache noise
+vendor/
+
+# IDE / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+
+# Local env / secrets
+.env
+.env.*
+!.env.example

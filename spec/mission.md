@@ -14,6 +14,10 @@ Symbols are **multi-symbol from day one** (BTCUSD is the first concrete pair; ot
 
 Prefer **never lose on fees or latency**. Model worst-case costs (fees, latency, partial fills, networking). Only take trades where modeled edge survives those costs. Miss opportunities rather than take bad fills.
 
+Networking and unknown order acks: see [networking.md](networking.md) (fail closed on bad books; reconcile on uncertain orders; stop-and-recover unpaired legs).
+
+Concurrent orders and per-hedge Risk ordering: see [concurrency.md](concurrency.md) (serialize Risk+execution per hedge/arb key; global in-flight cap; miss under overload).
+
 ## Venues
 
 An **exchange** is any tradable venue behind the `Exchange` interface: crypto books (e.g. Hyperliquid, GRVT) **or** prediction markets (e.g. Polymarket). V1 arb uses crypto venues first; prediction-market adapters come after the crypto paper path is proven.
