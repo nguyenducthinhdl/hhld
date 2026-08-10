@@ -23,6 +23,20 @@
     "latency_penalty": 0.05,
     "partial_fill_factor": 0.95,
     "max_book_age": "2s",
-    "max_in_flight": 4
+    "max_in_flight": 4,
+    "budgets": {
+      "hyperliquid/BTCUSD": "10000",
+      "grvt/BTCUSD": "10000"
+    }
+  },
+  "symbol_map": {
+    "BTCUSD": {
+      "venues": {
+        "hyperliquid": "BTC",
+        "grvt": "BTC_USDT_Perp"
+      },
+      "order_interval": "1s",
+      "max_volume_trade": "1"
+    }
   }
 }

@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/nguyenducthinhdl/hhld/src/config"
 	"github.com/nguyenducthinhdl/hhld/src/exchange"
 	"github.com/nguyenducthinhdl/hhld/src/strategy"
 )
@@ -20,9 +21,11 @@ var _ Risk = (*Gate)(nil)
 type Gate struct {
 	params Params
 
-	mu       sync.Mutex
-	inFlight int
-	held     map[string]struct{} // lock keys currently in a Risk+exec pipeline
+	mu        sync.Mutex
+	inFlight  int
+	held      map[string]struct{} // lock keys currently in a Risk+exec pipeline
+	spent     map[string]float64  // notional spent per venue/symbol
+	lastPlace map[exchange.Symbol]time.Time
 }
 
 // NewGate builds a Gate from Params.
@@ -33,9 +36,20 @@ func NewGate(p Params) *Gate {
 	if p.MaxInFlight <= 0 {
 		p.MaxInFlight = 4
 	}
+	if p.Budgets == nil {
+		p.Budgets = map[string]float64{}
+	}
+	if p.OrderInterval == nil {
+		p.OrderInterval = map[exchange.Symbol]time.Duration{}
+	}
+	if p.MaxVolumeTrade == nil {
+		p.MaxVolumeTrade = map[exchange.Symbol]float64{}
+	}
 	return &Gate{
-		params: p,
-		held:   make(map[string]struct{}),
+		params:    p,
+		held:      make(map[string]struct{}),
+		spent:     make(map[string]float64),
+		lastPlace: make(map[exchange.Symbol]time.Time),
 	}
 }
 
@@ -114,7 +128,73 @@ func (g *Gate) Evaluate(ctx context.Context, d strategy.Decision, mkt MarketView
 	if ok, reason := g.edgeSurvives(d); !ok {
 		return Verdict{OK: false, Reason: reason}, nil
 	}
+	if ok, reason := g.checkLimits(d, now); !ok {
+		return Verdict{OK: false, Reason: reason}, nil
+	}
 	return Verdict{OK: true, Reason: "ok"}, nil
+}
+
+// checkLimits enforces max volume, per-symbol rate limit, and notional budgets.
+// On accept, charges spent notional and updates lastPlace (process lifetime).
+func (g *Gate) checkLimits(d strategy.Decision, now time.Time) (bool, string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	for _, leg := range d.Legs {
+		sz, err := strconv.ParseFloat(leg.Size, 64)
+		if err != nil || sz <= 0 {
+			return false, "bad size"
+		}
+		if max, ok := g.params.MaxVolumeTrade[leg.Symbol]; ok && max > 0 && sz > max+1e-12 {
+			return false, "max_volume_exceeded"
+		}
+	}
+
+	syms := map[exchange.Symbol]struct{}{}
+	for _, leg := range d.Legs {
+		syms[leg.Symbol] = struct{}{}
+	}
+	for sym := range syms {
+		interval, ok := g.params.OrderInterval[sym]
+		if !ok || interval <= 0 {
+			continue
+		}
+		if last, seen := g.lastPlace[sym]; seen && now.Sub(last) < interval {
+			return false, "rate_limited"
+		}
+	}
+
+	type add struct {
+		key string
+		n   float64
+	}
+	var adds []add
+	for _, leg := range d.Legs {
+		px, err := strconv.ParseFloat(leg.Price, 64)
+		if err != nil {
+			return false, "bad price"
+		}
+		sz, err := strconv.ParseFloat(leg.Size, 64)
+		if err != nil {
+			return false, "bad size"
+		}
+		key := config.BudgetKey(leg.Venue, leg.Symbol)
+		notional := px * sz
+		if budget, ok := g.params.Budgets[key]; ok && budget > 0 {
+			if g.spent[key]+notional > budget+1e-9 {
+				return false, "budget_exceeded:" + key
+			}
+		}
+		adds = append(adds, add{key: key, n: notional})
+	}
+
+	for _, a := range adds {
+		g.spent[a.key] += a.n
+	}
+	for sym := range syms {
+		g.lastPlace[sym] = now
+	}
+	return true, "ok"
 }
 
 func (g *Gate) edgeSurvives(d strategy.Decision) (bool, string) {

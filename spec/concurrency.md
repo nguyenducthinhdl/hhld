@@ -42,6 +42,14 @@ Strategy emits Decision(TraceID, HedgeID?, Legs)
 
 Different hedges (different keys) **may** run in parallel up to the global cap. Same hedge (or same arb key) **must not**.
 
+## Event bus (P8.5)
+
+Market-data fan-in uses an **in-process** `market.Bus` only — **no RabbitMQ** (or other broker) on the hot path.
+
+- Bus queues are **bounded**; on overflow **drop** (miss-more), do not grow without limit.
+- BookStore apply is serialized per key; Runner may see bursts of `BookUpdated` events.
+- Runner **must** still call `risk.Gate.TryAcquire` before Evaluate/Place — event flood must not bypass per-arb-key serialization or the global in-flight cap (`lock_busy` / `overloaded`).
+
 ## Performance expectations
 
 - Design for **one medium instance**: modest parallelism across independent keys, strict serial per key.
@@ -53,6 +61,7 @@ Different hedges (different keys) **may** run in parallel up to the global cap. 
 | Concern | Phase |
 |---------|-------|
 | Risk gates including overload / lock-busy as miss | [P4](roadmap/p4.md) |
+| Event bus + BookStore + Runner | [P8.5](roadmap/p85.md) |
 | Execution pipeline holding per-hedge order | [P3](roadmap/p3.md)–[P9](roadmap/p9.md) |
 | Metrics / tracing of drops and in-flight | [P10](roadmap/p10.md) |
 

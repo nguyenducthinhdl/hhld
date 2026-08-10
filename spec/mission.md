@@ -8,7 +8,7 @@ HHLD is a one-person trading system built for **capital efficiency and safety**.
 
 Detect arbitrage gaps across two venues, decide size and price in Trading Core, and **paper-trade** those decisions. Persist orders and PnL for audit. No live capital at risk until later phases explicitly allow it.
 
-How paper arb works in detail: [trading.md](trading.md).
+How paper arb works in detail: [trading.md](trading.md). Overall wiring (connections, books/deltas, automatic place): [architect.md](architect.md).
 
 Symbols are **multi-symbol from day one** (BTCUSD is the first concrete pair; others via config, not hard-coded into strategy logic).
 

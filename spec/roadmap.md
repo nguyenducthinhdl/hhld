@@ -14,7 +14,8 @@ flowchart LR
   P5 --> P6[P6_backtest_sim]
   P6 --> P7[P7_crawl_warehouse]
   P7 --> P8[P8_hl_grvt_adapters]
-  P8 --> P9[P9_paper_on_live_feeds]
+  P8 --> P85[P8_5_event_bookstore]
+  P85 --> P9[P9_paper_on_live_feeds]
   P9 --> P10[P10_monitoring_hardening]
 ```
 
@@ -122,6 +123,13 @@ flowchart LR
 3. **Clock unify**: HL `time` (ms-style per docs) vs GRVT ns → one internal timestamp representation.
 4. **Reconnect**: on WS drop, resubscribe and treat next book as fresh snapshot (do not apply stale deltas across reconnect).
 5. **Contract gate**: before merge, smoke-test live subscribe for one symbol on each venue and assert payloads match the tables above; if docs diverge, update this section in the same PR as the adapter.
+
+### P8.5 — Event-driven BookStore
+
+- **Status:** [done](roadmap/p85.md)
+- **Goal**: In-process market events + BookStore (snapshot/delta apply) + Runner that re-evaluates Strategy on **every** book update from either venue when both sides have a book.
+- **Done when**: deltas apply; Runner triggers `OnBooks` per update once peer exists; Risk locks still apply; sim unchanged.
+- **Skip**: live capital, coalesce windows, external brokers, Strategy consuming deltas directly.
 
 ### P9 — Paper on live feeds
 

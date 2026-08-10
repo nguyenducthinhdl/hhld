@@ -74,15 +74,19 @@ Strategy never imports vendor SDKs; it only sees HHLD `Book` / `Symbol` / `Venue
 From `configs/default.json` / `config.Config`:
 
 - **`symbols`** — which HHLD symbols to evaluate (scales by list; BTCUSD first)
-- **`trading.size`** — size on each leg  
+- **`trading.size`** — default order size on each leg  
 - **`trading.min_gap`** — minimum raw gap before emitting a Decision  
 - **`venues.a` / `venues.b`** — intended dual venues (wired by the runner)  
+- **`symbol_map.<SYM>.venues`** — HHLD symbol → venue-native id (e.g. BTCUSD → HL `BTC`, GRVT `BTC_USDT_Perp`)  
+- **`symbol_map.<SYM>.order_interval`** — min time between accepted places for that symbol (default `1s`; `0` disables)  
+- **`symbol_map.<SYM>.max_volume_trade`** — max size per leg; effective size = `min(trading.size, max_volume_trade)`  
+- **`risk.budgets.<venue/symbol>`** — process-lifetime notional cap `sum(price×size)` per venue+symbol (missing/`0` = unlimited)  
 - **`risk.fees.<venue>`** — per-exchange fee model (`rate_bps`, `fixed`, `commission_bps`, `commission_fixed`; additive)  
 - **`risk.fee_bps_per_leg`** — default rate when a venue is missing from `fees`  
 - **`risk.*`** — latency penalty, partial-fill factor, max book age, max in-flight  
 - **`timeouts.book` / `timeouts.order`** — budgets used with fake delays and (later) live calls  
 
-`strategy.ArbConfigFrom(cfg)` maps config → `CrossVenueArb`.
+`strategy.ArbConfigFrom(cfg)` maps config → `CrossVenueArb` (clamped sizes). Legacy flat `symbol_map` (`{"hyperliquid":"BTC",...}`) still loads; defaults fill `order_interval` / `max_volume_trade`.
 
 ## Risk before place (miss-more)
 
@@ -92,8 +96,13 @@ Even if Strategy sees a gap, Risk may **reject** (miss the opportunity):
 - A required book is missing or **stale**  
 - A leg’s venue is marked **unhealthy**  
 - Same arb key already in flight (`lock_busy`) or global cap hit (`overloaded`)  
+- Leg size above `max_volume_trade` (`max_volume_exceeded`)  
+- Place too soon after last accept for that symbol (`rate_limited`)  
+- Notional spend would exceed `risk.budgets` for a venue+symbol (`budget_exceeded:venue/symbol`)  
 
 Caller pattern: `TryAcquire` → `Evaluate` → `PlaceDecision` → `Release`.
+
+Budget and rate limits are charged on **accepted Evaluate** (process lifetime; not persisted across restarts). If place fails after accept, the spend still counts (miss-more).
 
 ### Why fees live in Risk (not Exchange)
 
@@ -130,6 +139,40 @@ Simulation feeds calibration via `sim.Analyzer` (winning rate + distribution). S
 `(symbol, gap, volume1, volume2, exchange1, exchange2, time)`
 
 so Risk can condition estimates on gap size, venues, and size — not only a single global win rate.
+
+## Event-driven market data (P8.5)
+
+Live and fake feeds publish **book events** into an in-process bus; a **BookStore** applies snapshots and deltas; a **Runner** re-evaluates Strategy on every update.
+
+Full wiring (connections, delta rules, automatic place): [architect.md](architect.md).
+
+```text
+HL / GRVT / fake  →  market.Bus (BookEvent)  →  BookStore.Apply
+                                                 │
+                                                 ▼ BookUpdated(venue, symbol)
+                                              Runner
+                                                 │
+                    both venues have book? ──no──► miss
+                                                 │ yes
+                                                 ▼
+                                    Strategy.OnBooks([bookA, bookB])
+                                                 │
+                                                 ▼
+                              Risk.TryAcquire → Evaluate → Place → Admin
+```
+
+| Rule | Behavior |
+|------|----------|
+| **Event kinds** | `Snapshot` (full replace) or `Delta` (merge by price; size `0` deletes a level) |
+| **Delta before snapshot** | Reject for that `(venue,symbol)` until a snapshot establishes the book |
+| **Evaluate trigger** | Every successful apply for either venue (no coalesce window) |
+| **Peer missing** | Miss — do not call `OnBooks` until both configured venues have a book for the symbol |
+| **Strategy API** | Unchanged: still `OnBooks([]Book)` with full books; deltas stay below Strategy |
+| **Risk** | Events must not bypass `TryAcquire` / in-flight caps ([concurrency.md](concurrency.md)) |
+| **HL note** | WS `l2Book` is already a full snapshot each push → publish as Snapshot |
+| **GRVT note** | Prefer `v1.book.d` for deltas; `v1.book.s` as Snapshot; reconnect resets with Snapshot |
+
+Sim/backtest (P6) still replays book lists through `OnBooks` without requiring the bus.
 
 ## Data warehouse and backtest replay (P7)
 
@@ -218,9 +261,9 @@ go run ./cmd/hhld -demo
 
 ## What paper arb is not
 
-- Not live capital or real exchange order placement  
+- Not live capital or real exchange order placement (P8 adapters are **read-only**; orders return `ErrReadOnly`)  
 - Not prediction-market trading or prediction↔crypto hedge (later)  
-- Not full historical warehouse coverage (P7 is minimal SQLite + JSON/NDJSON crawl; Parquet/multi-cloud later) or live HL/GRVT adapters (P8–P9)  
+- Not full historical warehouse coverage (P7 is minimal SQLite + JSON/NDJSON crawl; Parquet/multi-cloud later) or paper-on-live loop (P9)  
 
 ## Minimal mental example
 

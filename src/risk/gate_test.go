@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nguyenducthinhdl/hhld/src/config"
 	"github.com/nguyenducthinhdl/hhld/src/exchange"
 	"github.com/nguyenducthinhdl/hhld/src/risk"
 	"github.com/nguyenducthinhdl/hhld/src/strategy"
@@ -187,5 +188,89 @@ func TestGate_ConcurrentSameKeySerialized(t *testing.T) {
 	wg.Wait()
 	if busy == 0 {
 		t.Fatal("expected some lock_busy misses under contention")
+	}
+}
+
+func TestGate_RateLimited(t *testing.T) {
+	g := risk.NewGate(risk.Params{
+		FeeBpsPerLeg: 1, LatencyPenalty: 0, PartialFillFactor: 1,
+		MaxBookAge: 2 * time.Second, MaxInFlight: 4,
+		OrderInterval: map[exchange.Symbol]time.Duration{"BTCUSD": time.Second},
+	})
+	now := time.Unix(1000, 0).UTC()
+	mkt := risk.MarketView{Books: freshBooks(now), Now: now}
+	v, err := g.Evaluate(context.Background(), sampleArbDecision(), mkt)
+	if err != nil || !v.OK {
+		t.Fatalf("first: %+v err=%v", v, err)
+	}
+	v2, err := g.Evaluate(context.Background(), sampleArbDecision(), risk.MarketView{
+		Books: freshBooks(now.Add(100 * time.Millisecond)), Now: now.Add(100 * time.Millisecond),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v2.OK || v2.Reason != "rate_limited" {
+		t.Fatalf("want rate_limited, got %+v", v2)
+	}
+	v3, err := g.Evaluate(context.Background(), sampleArbDecision(), risk.MarketView{
+		Books: freshBooks(now.Add(2 * time.Second)), Now: now.Add(2 * time.Second),
+	})
+	if err != nil || !v3.OK {
+		t.Fatalf("after interval: %+v err=%v", v3, err)
+	}
+}
+
+func TestGate_BudgetExceeded(t *testing.T) {
+	g := risk.NewGate(risk.Params{
+		FeeBpsPerLeg: 1, LatencyPenalty: 0, PartialFillFactor: 1,
+		MaxBookAge: 2 * time.Second, MaxInFlight: 4,
+		Budgets: map[string]float64{
+			"hyperliquid/BTCUSD": 150, // first leg 100*1=100 OK; second Decision would need +100
+			"grvt/BTCUSD":        10000,
+		},
+	})
+	now := time.Unix(1000, 0).UTC()
+	mkt := risk.MarketView{Books: freshBooks(now), Now: now}
+	v, err := g.Evaluate(context.Background(), sampleArbDecision(), mkt)
+	if err != nil || !v.OK {
+		t.Fatalf("first: %+v err=%v", v, err)
+	}
+	v2, err := g.Evaluate(context.Background(), sampleArbDecision(), mkt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v2.OK || !strings.Contains(v2.Reason, "budget_exceeded:hyperliquid/BTCUSD") {
+		t.Fatalf("want budget_exceeded, got %+v", v2)
+	}
+}
+
+func TestGate_MaxVolumeExceeded(t *testing.T) {
+	g := risk.NewGate(risk.Params{
+		FeeBpsPerLeg: 1, LatencyPenalty: 0, PartialFillFactor: 1,
+		MaxBookAge: 2 * time.Second, MaxInFlight: 4,
+		MaxVolumeTrade: map[exchange.Symbol]float64{"BTCUSD": 0.5},
+	})
+	now := time.Unix(1000, 0).UTC()
+	d := sampleArbDecision() // size "1"
+	v, err := g.Evaluate(context.Background(), d, risk.MarketView{Books: freshBooks(now), Now: now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v.OK || v.Reason != "max_volume_exceeded" {
+		t.Fatalf("want max_volume_exceeded, got %+v", v)
+	}
+}
+
+func TestParamsFromConfig_BudgetsAndIntervals(t *testing.T) {
+	cfg := config.Default()
+	p := risk.ParamsFromConfig(cfg)
+	if p.Budgets["hyperliquid/BTCUSD"] != 10000 {
+		t.Fatalf("budgets: %+v", p.Budgets)
+	}
+	if p.OrderInterval["BTCUSD"] != time.Second {
+		t.Fatalf("interval: %+v", p.OrderInterval)
+	}
+	if p.MaxVolumeTrade["BTCUSD"] != 1 {
+		t.Fatalf("max vol: %+v", p.MaxVolumeTrade)
 	}
 }

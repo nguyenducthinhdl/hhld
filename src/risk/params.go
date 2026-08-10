@@ -1,13 +1,14 @@
 package risk
 
 import (
+	"strconv"
 	"time"
 
 	"github.com/nguyenducthinhdl/hhld/src/config"
 	"github.com/nguyenducthinhdl/hhld/src/exchange"
 )
 
-// Params configures miss-more gates (fees, latency, staleness, concurrency).
+// Params configures miss-more gates (fees, latency, staleness, concurrency, budgets).
 type Params struct {
 	// Fees is the per-venue trading fee schedule (rate / fixed / commission).
 	Fees FeeSchedule
@@ -22,9 +23,15 @@ type Params struct {
 	MaxBookAge time.Duration
 	// MaxInFlight is the global concurrent Risk+exec pipeline cap (miss when full).
 	MaxInFlight int
+	// Budgets is notional caps keyed "venue/symbol". Missing or <=0 = unlimited.
+	Budgets map[string]float64
+	// OrderInterval is min time between accepted Evaluates per symbol. Missing/0 = no limit.
+	OrderInterval map[exchange.Symbol]time.Duration
+	// MaxVolumeTrade caps leg size per symbol. Missing/0 = no cap check.
+	MaxVolumeTrade map[exchange.Symbol]float64
 }
 
-// ParamsFromConfig maps config.Risk (and defaults) into Params.
+// ParamsFromConfig maps config.Risk (and symbol_map limits) into Params.
 func ParamsFromConfig(cfg config.Config) Params {
 	r := cfg.Risk
 	fees := FeeSchedule{
@@ -39,6 +46,27 @@ func ParamsFromConfig(cfg config.Config) Params {
 			CommissionFixed: vf.CommissionFixed,
 		}
 	}
+	budgets := make(map[string]float64, len(r.Budgets))
+	for k, raw := range r.Budgets {
+		v, err := strconv.ParseFloat(raw, 64)
+		if err != nil || v <= 0 {
+			continue // missing/invalid/0 = unlimited
+		}
+		budgets[k] = v
+	}
+	intervals := make(map[exchange.Symbol]time.Duration, len(cfg.SymbolMap))
+	maxVol := make(map[exchange.Symbol]float64, len(cfg.SymbolMap))
+	for sym, entry := range cfg.SymbolMap {
+		s := exchange.Symbol(sym)
+		if entry.OrderInterval != nil {
+			intervals[s] = entry.OrderInterval.Duration()
+		}
+		if entry.MaxVolumeTrade != "" {
+			if mv, err := strconv.ParseFloat(entry.MaxVolumeTrade, 64); err == nil && mv > 0 {
+				maxVol[s] = mv
+			}
+		}
+	}
 	p := Params{
 		Fees:              fees,
 		FeeBpsPerLeg:      r.FeeBpsPerLeg,
@@ -46,6 +74,9 @@ func ParamsFromConfig(cfg config.Config) Params {
 		PartialFillFactor: r.PartialFillFactor,
 		MaxBookAge:        r.MaxBookAge.Duration(),
 		MaxInFlight:       r.MaxInFlight,
+		Budgets:           budgets,
+		OrderInterval:     intervals,
+		MaxVolumeTrade:    maxVol,
 	}
 	if p.PartialFillFactor <= 0 || p.PartialFillFactor > 1 {
 		p.PartialFillFactor = 1

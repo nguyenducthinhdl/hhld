@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/nguyenducthinhdl/hhld/src/exchange"
@@ -23,6 +25,60 @@ type Config struct {
 	Timeouts Timeouts `json:"timeouts"`
 	// Risk holds miss-more gate parameters.
 	Risk Risk `json:"risk"`
+	// SymbolMap maps HHLD symbols to venue-native ids plus per-symbol trade limits.
+	SymbolMap map[string]SymbolEntry `json:"symbol_map"`
+}
+
+// SymbolEntry maps one HHLD symbol to venue-native instrument ids and trade limits.
+// JSON may be the new object form or a legacy flat venue→native string map.
+type SymbolEntry struct {
+	Venues         map[string]string `json:"venues"`
+	OrderInterval  *Duration         `json:"order_interval"`
+	MaxVolumeTrade string            `json:"max_volume_trade"`
+}
+
+// UnmarshalJSON accepts either:
+//
+//	{"venues":{"hyperliquid":"BTC"},"order_interval":"1s","max_volume_trade":"1"}
+//
+// or legacy flat:
+//
+//	{"hyperliquid":"BTC","grvt":"BTC_USDT_Perp"}
+func (e *SymbolEntry) UnmarshalJSON(b []byte) error {
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(b, &raw); err != nil {
+		return fmt.Errorf("config: symbol_map entry: %w", err)
+	}
+	if v, ok := raw["venues"]; ok {
+		var venues map[string]string
+		if err := json.Unmarshal(v, &venues); err != nil {
+			return fmt.Errorf("config: symbol_map.venues: %w", err)
+		}
+		e.Venues = venues
+		if oi, ok := raw["order_interval"]; ok {
+			var d Duration
+			if err := json.Unmarshal(oi, &d); err != nil {
+				return fmt.Errorf("config: symbol_map.order_interval: %w", err)
+			}
+			e.OrderInterval = &d
+		}
+		if mv, ok := raw["max_volume_trade"]; ok {
+			if err := json.Unmarshal(mv, &e.MaxVolumeTrade); err != nil {
+				return fmt.Errorf("config: symbol_map.max_volume_trade: %w", err)
+			}
+		}
+		return nil
+	}
+	venues := make(map[string]string, len(raw))
+	for k, v := range raw {
+		var s string
+		if err := json.Unmarshal(v, &s); err != nil {
+			return fmt.Errorf("config: symbol_map legacy %s: %w", k, err)
+		}
+		venues[k] = s
+	}
+	e.Venues = venues
+	return nil
 }
 
 // Trading parameterizes strategy behavior.
@@ -59,6 +115,9 @@ type Risk struct {
 	PartialFillFactor float64  `json:"partial_fill_factor"`
 	MaxBookAge        Duration `json:"max_book_age"`
 	MaxInFlight       int      `json:"max_in_flight"`
+	// Budgets is per (venue, symbol) notional caps keyed "venue/symbol" (decimal strings).
+	// Missing or "0" = unlimited. Process-lifetime sum(price×size) of accepted legs.
+	Budgets map[string]string `json:"budgets"`
 }
 
 // VenueFee models one exchange's fee/commission schedule (additive components).
@@ -129,8 +188,27 @@ func Default() Config {
 			PartialFillFactor: 0.95,
 			MaxBookAge:        Duration(2 * time.Second),
 			MaxInFlight:       4,
+			Budgets: map[string]string{
+				"hyperliquid/BTCUSD": "10000",
+				"grvt/BTCUSD":        "10000",
+			},
+		},
+		SymbolMap: map[string]SymbolEntry{
+			"BTCUSD": {
+				Venues: map[string]string{
+					"hyperliquid": "BTC",
+					"grvt":        "BTC_USDT_Perp",
+				},
+				OrderInterval:  durationPtr(time.Second),
+				MaxVolumeTrade: "1",
+			},
 		},
 	}
+}
+
+func durationPtr(d time.Duration) *Duration {
+	x := Duration(d)
+	return &x
 }
 
 // Validate checks required fields for trading modules.
@@ -175,7 +253,107 @@ func (c Config) Validate() error {
 			return fmt.Errorf("config: risk.fees[%s] amounts must be >= 0", venue)
 		}
 	}
+	for key, raw := range c.Risk.Budgets {
+		if key == "" {
+			return fmt.Errorf("config: risk.budgets has empty key")
+		}
+		if !strings.Contains(key, "/") {
+			return fmt.Errorf("config: risk.budgets key %q must be venue/symbol", key)
+		}
+		v, err := strconv.ParseFloat(raw, 64)
+		if err != nil || v < 0 {
+			return fmt.Errorf("config: risk.budgets[%s] must be a non-negative number", key)
+		}
+	}
+	for sym, entry := range c.SymbolMap {
+		if sym == "" {
+			return fmt.Errorf("config: symbol_map has empty symbol key")
+		}
+		if len(entry.Venues) == 0 {
+			return fmt.Errorf("config: symbol_map[%s] has no venues", sym)
+		}
+		for venue, native := range entry.Venues {
+			if venue == "" || native == "" {
+				return fmt.Errorf("config: symbol_map[%s] has empty venue or native id", sym)
+			}
+		}
+		if entry.OrderInterval != nil && *entry.OrderInterval < 0 {
+			return fmt.Errorf("config: symbol_map[%s].order_interval must be >= 0", sym)
+		}
+		if entry.MaxVolumeTrade != "" {
+			mv, err := strconv.ParseFloat(entry.MaxVolumeTrade, 64)
+			if err != nil || mv <= 0 {
+				return fmt.Errorf("config: symbol_map[%s].max_volume_trade must be > 0", sym)
+			}
+		}
+	}
 	return nil
+}
+
+// NativeSymbol returns the venue-native instrument id for an HHLD symbol.
+func (c Config) NativeSymbol(venue exchange.VenueID, symbol exchange.Symbol) (string, error) {
+	entry, ok := c.SymbolMap[string(symbol)]
+	if !ok || entry.Venues == nil {
+		return "", fmt.Errorf("config: no symbol_map for %s", symbol)
+	}
+	native, ok := entry.Venues[string(venue)]
+	if !ok || native == "" {
+		return "", fmt.Errorf("config: no symbol_map[%s][%s]", symbol, venue)
+	}
+	return native, nil
+}
+
+// EffectiveSize returns min(trading.size, symbol max_volume_trade).
+// Missing max_volume_trade defaults to trading.size.
+func (c Config) EffectiveSize(symbol exchange.Symbol) string {
+	size := c.Trading.Size
+	max := size
+	if entry, ok := c.SymbolMap[string(symbol)]; ok && entry.MaxVolumeTrade != "" {
+		max = entry.MaxVolumeTrade
+	}
+	sf, err1 := strconv.ParseFloat(size, 64)
+	mf, err2 := strconv.ParseFloat(max, 64)
+	if err1 != nil || err2 != nil {
+		return size
+	}
+	if mf < sf {
+		return formatDecimal(max, mf)
+	}
+	return size
+}
+
+// OrderIntervalFor returns the min place interval for a symbol (0 if unset/disabled).
+func (c Config) OrderIntervalFor(symbol exchange.Symbol) time.Duration {
+	entry, ok := c.SymbolMap[string(symbol)]
+	if !ok || entry.OrderInterval == nil {
+		return 0
+	}
+	return entry.OrderInterval.Duration()
+}
+
+// MaxVolumeTradeFor returns max volume for a symbol (0 if unset).
+func (c Config) MaxVolumeTradeFor(symbol exchange.Symbol) float64 {
+	entry, ok := c.SymbolMap[string(symbol)]
+	if !ok || entry.MaxVolumeTrade == "" {
+		return 0
+	}
+	v, err := strconv.ParseFloat(entry.MaxVolumeTrade, 64)
+	if err != nil {
+		return 0
+	}
+	return v
+}
+
+func formatDecimal(raw string, v float64) string {
+	if raw != "" {
+		return raw
+	}
+	return strconv.FormatFloat(v, 'f', -1, 64)
+}
+
+// BudgetKey builds the risk.budgets map key for a venue+symbol.
+func BudgetKey(venue exchange.VenueID, symbol exchange.Symbol) string {
+	return string(venue) + "/" + string(symbol)
 }
 
 // LoadJSON reads Config from a JSON file path.
@@ -187,14 +365,28 @@ func LoadJSON(path string) (Config, error) {
 	return ParseJSON(data)
 }
 
-// ParseJSON unmarshals Config from JSON bytes and validates.
+// ParseJSON unmarshals Config from JSON bytes, applies symbol_map defaults, and validates.
 func ParseJSON(data []byte) (Config, error) {
 	cfg := Default()
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return Config{}, fmt.Errorf("config: parse json: %w", err)
 	}
+	cfg.applySymbolMapDefaults()
 	if err := cfg.Validate(); err != nil {
 		return Config{}, err
 	}
 	return cfg, nil
+}
+
+// applySymbolMapDefaults fills order_interval / max_volume_trade when omitted (legacy maps).
+func (c *Config) applySymbolMapDefaults() {
+	for sym, entry := range c.SymbolMap {
+		if entry.OrderInterval == nil {
+			entry.OrderInterval = durationPtr(time.Second)
+		}
+		if entry.MaxVolumeTrade == "" {
+			entry.MaxVolumeTrade = c.Trading.Size
+		}
+		c.SymbolMap[sym] = entry
+	}
 }

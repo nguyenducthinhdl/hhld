@@ -23,6 +23,7 @@ type Exchange struct {
 	books      map[exchange.Symbol]exchange.Book
 	bookSubs   map[exchange.Symbol][]exchange.BookHandler
 	tickSubs   map[exchange.Symbol][]exchange.TickHandler
+	deltaSubs  map[exchange.Symbol][]deltaHandler
 	acks       map[string]exchange.OrderAck
 	nextOrd    int
 	bookDelay  time.Duration // simulated book-path latency (Snapshot/Subscribe)
@@ -35,12 +36,13 @@ func New(id exchange.VenueID, clock exchange.Clock) *Exchange {
 		clock = exchange.NewManualClock(time.Unix(0, 0).UTC())
 	}
 	return &Exchange{
-		id:       id,
-		clock:    clock,
-		books:    make(map[exchange.Symbol]exchange.Book),
-		bookSubs: make(map[exchange.Symbol][]exchange.BookHandler),
-		tickSubs: make(map[exchange.Symbol][]exchange.TickHandler),
-		acks:     make(map[string]exchange.OrderAck),
+		id:        id,
+		clock:     clock,
+		books:     make(map[exchange.Symbol]exchange.Book),
+		bookSubs:  make(map[exchange.Symbol][]exchange.BookHandler),
+		tickSubs:  make(map[exchange.Symbol][]exchange.TickHandler),
+		deltaSubs: make(map[exchange.Symbol][]deltaHandler),
+		acks:      make(map[string]exchange.OrderAck),
 	}
 }
 
@@ -120,6 +122,27 @@ func (e *Exchange) SetBook(book exchange.Book) {
 		h(book)
 	}
 }
+
+// PushDelta notifies delta subscribers without replacing the stored snapshot.
+// Size "0" means delete that price level (same semantics as market.BookDelta).
+// For event-driven tests, prefer publishing market.DeltaEvent on a market.Bus.
+func (e *Exchange) PushDelta(symbol exchange.Symbol, bids, asks []exchange.Level) {
+	e.mu.RLock()
+	handlers := append([]deltaHandler(nil), e.deltaSubs[symbol]...)
+	e.mu.RUnlock()
+	for _, h := range handlers {
+		h(symbol, bids, asks, e.clock.Now())
+	}
+}
+
+// SubscribeDelta registers for PushDelta notifications (P8.5 fake helper).
+func (e *Exchange) SubscribeDelta(symbol exchange.Symbol, h func(symbol exchange.Symbol, bids, asks []exchange.Level, t time.Time)) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.deltaSubs[symbol] = append(e.deltaSubs[symbol], h)
+}
+
+type deltaHandler func(symbol exchange.Symbol, bids, asks []exchange.Level, t time.Time)
 
 // PushTick notifies tick subscribers. Time is set from clock if zero.
 func (e *Exchange) PushTick(tick exchange.Tick) {
