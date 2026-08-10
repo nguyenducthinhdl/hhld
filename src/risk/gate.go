@@ -161,12 +161,18 @@ func (g *Gate) edgeSurvives(d strategy.Decision) (bool, string) {
 	size *= g.params.PartialFillFactor
 
 	gross := (sellPx - buyPx) * size
-	fee := (buyPx*size + sellPx*size) * (g.params.FeeBpsPerLeg / 10_000)
+	fees := g.params.FeeSchedule()
+	fee := fees.Cost(buy.Venue, buyPx, size) + fees.Cost(sell.Venue, sellPx, size)
 	net := gross - fee - g.params.LatencyPenalty*size
 	if net <= 0 {
 		return false, fmt.Sprintf("negative_edge net=%.6f", net)
 	}
 	return true, "ok"
+}
+
+// Params returns a copy of the gate parameters (including fee schedule for paper fills).
+func (g *Gate) Params() Params {
+	return g.params
 }
 
 // LockKey returns the concurrency key: HedgeID if set, else arb key from symbol+venues.

@@ -12,7 +12,7 @@ Track delivery of each phase from the constitution [roadmap](../roadmap.md).
 | [P3](p3.md) | Arb strategy (paper) | done |
 | [P4](p4.md) | Risk gates | done |
 | [P5](p5.md) | PnL and admin audit | done |
-| [P6](p6.md) | Backtest simulation | pending |
+| [P6](p6.md) | Backtest simulation | done |
 | [P7](p7.md) | Crawl and warehouse | pending |
 | [P8](p8.md) | HL + GRVT read adapters | pending |
 | [P9](p9.md) | Paper on live feeds | pending |

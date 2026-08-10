@@ -76,7 +76,9 @@ From `configs/default.json` / `config.Config`:
 - **`trading.size`** — size on each leg  
 - **`trading.min_gap`** — minimum raw gap before emitting a Decision  
 - **`venues.a` / `venues.b`** — intended dual venues (wired by the runner)  
-- **`risk.*`** — fee bps, latency penalty, partial-fill factor, max book age, max in-flight  
+- **`risk.fees.<venue>`** — per-exchange fee model (`rate_bps`, `fixed`, `commission_bps`, `commission_fixed`; additive)  
+- **`risk.fee_bps_per_leg`** — default rate when a venue is missing from `fees`  
+- **`risk.*`** — latency penalty, partial-fill factor, max book age, max in-flight  
 - **`timeouts.book` / `timeouts.order`** — budgets used with fake delays and (later) live calls  
 
 `strategy.ArbConfigFrom(cfg)` maps config → `CrossVenueArb`.
@@ -91,6 +93,19 @@ Even if Strategy sees a gap, Risk may **reject** (miss the opportunity):
 - Same arb key already in flight (`lock_busy`) or global cap hit (`overloaded`)  
 
 Caller pattern: `TryAcquire` → `Evaluate` → `PlaceDecision` → `Release`.
+
+### Why fees live in Risk (not Exchange)
+
+Fee **schedules** are a pre-trade cost model for miss-more gating, not venue I/O:
+
+| Layer | Owns | Example |
+|-------|------|---------|
+| `risk.FeeSchedule` / `config.risk.fees` | Expected / worst-case cost **before** place | HL `rate_bps: 3.5`, GRVT `rate_bps` + `commission_fixed` |
+| `exchange.Fill.Fee` | What was **actually** charged after a fill | Live adapter reports venue fee on the fill |
+
+- **Risk** needs those numbers to accept or reject a `Decision` before `PlaceOrder`. Operators may set schedules **more conservative** than advertised venue rates.
+- **Exchange** adapters own market data and order/fill transport. Putting policy schedules on `Exchange` would mix I/O with economic gates; Risk would still consume the same numbers.
+- On paper today, `RecordPaperDecision` stamps the Risk schedule onto fills so PnL matches the gate. Later (live fills), prefer the real `Fill.Fee` from the venue; Risk may still gate on the configured schedule (or a conservative blend). Optional later: adapter `EstimateFee` as an input to Risk — Risk still decides.
 
 ### Estimation (VaR / winning rate)
 
@@ -130,9 +145,31 @@ This matches [networking.md](networking.md): unknown/failed legs must be auditab
 For the same symbol, buy then sell inventory-matches:
 
 - Realized ≈ `(sell_price - buy_price) * size - fees`  
+- Fees use the same per-venue schedule as the gate (`risk.FeeSchedule` / `risk.fees` in config): rate (bps), fixed amount, and/or commission — summed per leg  
+- `admin.RecordPaperDecision(..., fees)` writes that fee onto each successful fill  
 - Audit can list orders by `TraceID` and compare to fills on the tracker  
 
 Unrealized mark-to-market is deferred (`Unrealized` is `"0"` in the memory tracker for now).
+
+## Audit dashboard (lightweight)
+
+No polished charts yet (P5 skipped visualization). Operators inspect PnL and orders via:
+
+| URL | Purpose |
+|-----|---------|
+| `GET /trading/pnl` | Realized / unrealized snapshot (HTML) |
+| `GET /trading/pnl?format=json` | Same as JSON |
+| `GET /trading/orders` | Order table; query `trace_id`, `hedge_id`, `venue`, `symbol` |
+| `GET /trading/orders?format=json` | Same as JSON |
+
+Run locally:
+
+```bash
+go run ./cmd/hhld -demo
+# open http://127.0.0.1:8080/trading/pnl
+```
+
+`-demo` seeds one paper arb (`trace_id=demo-arb-1`) so the pages are non-empty. Wire your live `admin.Auditor` into `admin.Handler` for a real session.
 
 ## What paper arb is not
 
@@ -145,6 +182,6 @@ Unrealized mark-to-market is deferred (`Unrealized` is `"0"` in the memory track
 1. Fake HL book: ask `100.1`; fake GRVT book: bid `100.8`; `min_gap = 0.3` → Decision.  
 2. Risk: fees/latency leave positive net edge; books fresh → OK.  
 3. Paper place both legs → two `accepted` acks.  
-4. Admin: two orders under one `TraceID`; PnL realized ≈ `0.7` per unit size (before modeled fees in PnL fills).  
+4. Admin: two orders under one `TraceID`; PnL realized ≈ gap − modeled fees (e.g. 5 bps/leg on default config).  
 
 That loop is the V1 paper-trading path HHLD is built to prove before live gates open.

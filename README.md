@@ -15,14 +15,21 @@ Go module `github.com/nguyenducthinhdl/hhld`. Packages under [`src/`](src/) (P0 
 | [`src/pnl`](src/pnl/) | Profit and loss |
 | [`src/sim`](src/sim/) | Backtest sim + winning rate/distribution analysis |
 | [`src/warehouse`](src/warehouse/) | Market data store |
-| [`src/admin`](src/admin/) | Order / PnL audit |
+| [`src/admin`](src/admin/) | Order / PnL audit (+ HTTP `/trading/pnl`, `/trading/orders`) |
 
 Example config: [`configs/default.json`](configs/default.json).
 
 ```bash
 go build ./...
 go test ./...
+
+# lightweight PnL / orders dashboard (seeded demo data)
+go run ./cmd/hhld -demo
+# → http://127.0.0.1:8080/trading/pnl
+# → http://127.0.0.1:8080/trading/orders?trace_id=demo-arb-1
 ```
+
+See [spec/trading.md](spec/trading.md#audit-dashboard-lightweight).
 
 ## Input from the owner
 - This is the project aims to do a trading system to gain money efficiency and safety 

@@ -64,6 +64,7 @@ flowchart LR
 
 ### P6 — Backtest simulation
 
+- **Status:** [done](roadmap/p6.md)
 - **Goal**: Replay ticks/books through Strategy/Risk → PnL; winning rate + distribution `(symbol, gap, volumes, exchanges, time)` for Risk calibration.
 - **Done when**: Simulation accepts market input + strategy, outputs PnL; Analyzer reports win rate/distribution.
 - **Skip**: rich Visualization Module (CSV is enough); production ML.

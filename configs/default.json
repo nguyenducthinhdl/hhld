@@ -16,6 +16,10 @@
   },
   "risk": {
     "fee_bps_per_leg": 5,
+    "fees": {
+      "hyperliquid": { "rate_bps": 3.5 },
+      "grvt": { "rate_bps": 5, "commission_fixed": 0.01 }
+    },
     "latency_penalty": 0.05,
     "partial_fill_factor": 0.95,
     "max_book_age": "2s",

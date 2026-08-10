@@ -12,6 +12,8 @@ import (
 	"github.com/nguyenducthinhdl/hhld/src/strategy"
 )
 
+// Interface compliance stubs (P1-style): any Simulator must wire Strategy + Risk + Tracker
+// without importing venue SDKs (spec/tech-stack.md; spec/roadmap/p1.md).
 var _ sim.Simulator = (*stubSimulator)(nil)
 var _ strategy.Strategy = (*passStrategy)(nil)
 var _ risk.Risk = (*passRisk)(nil)
@@ -48,6 +50,11 @@ func (stubSimulator) Run(ctx context.Context, in sim.Input, s strategy.Strategy,
 	return t.Snapshot(ctx)
 }
 
+// TestSimulator_RunReturnsSnapshot is a minimal Simulator contract check.
+//
+// Why: Documents that Run always returns a PnL Snapshot (spec/roadmap/p6.md done-when).
+// Full book-replay behavior is covered by TestReplay_RunAccumulatesPnL; this keeps the
+// interface itself compile- and call-tested with no-op strategy/risk (loose coupling).
 func TestSimulator_RunReturnsSnapshot(t *testing.T) {
 	snap, err := stubSimulator{}.Run(
 		context.Background(),

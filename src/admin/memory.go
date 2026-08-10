@@ -3,11 +3,13 @@ package admin
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"sync"
 	"time"
 
 	"github.com/nguyenducthinhdl/hhld/src/exchange"
 	"github.com/nguyenducthinhdl/hhld/src/pnl"
+	"github.com/nguyenducthinhdl/hhld/src/risk"
 	"github.com/nguyenducthinhdl/hhld/src/strategy"
 )
 
@@ -86,7 +88,9 @@ func (m *Memory) Tracker() pnl.Tracker { return m.tracker }
 
 // RecordPaperDecision persists accepted paper legs as orders + fills so trades are reconstructable.
 // Failed legs are stored with status "error" and no fill.
-func RecordPaperDecision(ctx context.Context, a Auditor, tracker pnl.Tracker, d strategy.Decision, results []strategy.LegResult) error {
+// fees should match risk.Params.FeeSchedule so realized PnL reflects the same
+// per-venue trading costs the miss-more gate modeled.
+func RecordPaperDecision(ctx context.Context, a Auditor, tracker pnl.Tracker, d strategy.Decision, results []strategy.LegResult, fees risk.FeeSchedule) error {
 	if tracker == nil {
 		return fmt.Errorf("admin: tracker required")
 	}
@@ -126,6 +130,8 @@ func RecordPaperDecision(ctx context.Context, a Auditor, tracker pnl.Tracker, d 
 		if r.Err != nil {
 			continue
 		}
+		px, _ := strconv.ParseFloat(r.Leg.Price, 64)
+		sz, _ := strconv.ParseFloat(r.Leg.Size, 64)
 		fill := exchange.Fill{
 			OrderID:       orderID,
 			ClientOrderID: clientID,
@@ -137,7 +143,7 @@ func RecordPaperDecision(ctx context.Context, a Auditor, tracker pnl.Tracker, d 
 			Side:          r.Leg.Side,
 			Price:         r.Leg.Price,
 			Size:          r.Leg.Size,
-			Fee:           "0",
+			Fee:           risk.FormatFee(fees.Cost(r.Leg.Venue, px, sz)),
 			Time:          ts,
 		}
 		if err := tracker.RecordFill(ctx, fill); err != nil {

@@ -10,6 +10,7 @@ import (
 	"github.com/nguyenducthinhdl/hhld/src/exchange"
 	"github.com/nguyenducthinhdl/hhld/src/exchange/fake"
 	"github.com/nguyenducthinhdl/hhld/src/pnl"
+	"github.com/nguyenducthinhdl/hhld/src/risk"
 	"github.com/nguyenducthinhdl/hhld/src/strategy"
 )
 
@@ -55,7 +56,14 @@ func TestRecordPaperDecision_ReconstructableArb(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := admin.RecordPaperDecision(ctx, aud, tr, d, results); err != nil {
+	fees := risk.FeeSchedule{
+		DefaultRateBps: 5,
+		ByVenue: map[exchange.VenueID]risk.VenueFee{
+			"hyperliquid": {RateBps: 5},
+			"grvt":        {RateBps: 5},
+		},
+	}
+	if err := admin.RecordPaperDecision(ctx, aud, tr, d, results, fees); err != nil {
 		t.Fatal(err)
 	}
 
@@ -76,6 +84,12 @@ func TestRecordPaperDecision_ReconstructableArb(t *testing.T) {
 	if len(fills) != 2 {
 		t.Fatalf("want 2 fills, got %d", len(fills))
 	}
+	for _, f := range fills {
+		fee, err := strconv.ParseFloat(f.Fee, 64)
+		if err != nil || fee <= 0 {
+			t.Fatalf("want positive modeled fee on fill, got %+v", f)
+		}
+	}
 
 	snap, err := aud.PnL(ctx)
 	if err != nil {
@@ -85,8 +99,9 @@ func TestRecordPaperDecision_ReconstructableArb(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got < 0.999 || got > 1.001 {
-		t.Fatalf("want realized ~1, got %s", snap.Realized)
+	// gross gap 1.0 minus Cost(100,1,5bps)+Cost(101,1,5bps) = 0.1005 → ~0.8995
+	if got < 0.899 || got > 0.901 {
+		t.Fatalf("want realized ~0.8995 after fees, got %s", snap.Realized)
 	}
 }
 
@@ -111,7 +126,7 @@ func TestRecordPaperDecision_PartialLegStillAuditable(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected place error from timeout")
 	}
-	if err := admin.RecordPaperDecision(context.Background(), aud, tr, d, results); err != nil {
+	if err := admin.RecordPaperDecision(context.Background(), aud, tr, d, results, risk.FeeSchedule{}); err != nil {
 		t.Fatal(err)
 	}
 	orders, err := aud.ListOrders(context.Background(), admin.Filter{TraceID: "arb-partial"})
