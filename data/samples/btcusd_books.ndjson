@@ -1,0 +1,4 @@
+{"type":"book","venue":"hyperliquid","symbol":"BTCUSD","kind":"perp","bids":[{"price":"100.0","size":"2"}],"asks":[{"price":"100.1","size":"2"}],"time":"2023-11-14T22:13:20Z"}
+{"type":"book","venue":"grvt","symbol":"BTCUSD","kind":"perp","bids":[{"price":"100.2","size":"2"}],"asks":[{"price":"100.3","size":"2"}],"time":"2023-11-14T22:13:20Z"}
+{"type":"book","venue":"hyperliquid","symbol":"BTCUSD","kind":"perp","bids":[{"price":"100.0","size":"2"}],"asks":[{"price":"100.1","size":"2"}],"time":"2023-11-14T22:13:21Z"}
+{"type":"book","venue":"grvt","symbol":"BTCUSD","kind":"perp","bids":[{"price":"101.0","size":"2"}],"asks":[{"price":"101.1","size":"2"}],"time":"2023-11-14T22:13:21Z"}

@@ -2,7 +2,7 @@
 
 How HHLD **paper arb** works today: detect a price gap between two venues, decide buy-low / sell-high, place simulated orders (no real capital), then audit orders and PnL.
 
-Related: [mission.md](mission.md), [networking.md](networking.md), [concurrency.md](concurrency.md), [roadmap/p3.md](roadmap/p3.md)–[p5.md](roadmap/p5.md).
+Related: [mission.md](mission.md), [networking.md](networking.md), [concurrency.md](concurrency.md), [quality-assurance.md](quality-assurance.md), [roadmap/p3.md](roadmap/p3.md)–[p7.md](roadmap/p7.md).
 
 ## What “paper” means
 
@@ -54,6 +54,7 @@ admin.RecordPaperDecision  ← order store + pnl fills (reconstruct by TraceID)
 | Execution | `strategy.PlaceDecision` | Concurrent paper `PlaceOrder` per leg |
 | Risk | `risk.Gate` | Miss-more: reject bad edge / stale books; serialize per arb key |
 | Audit | `admin` + `pnl` | Persist orders; record fills; realized PnL |
+| Backtest input | `warehouse` + `crawl` | Persist crawled books/ticks; feed `sim.Replay` (offline, not hot path) |
 
 ## Decision shape
 
@@ -130,6 +131,50 @@ Simulation feeds calibration via `sim.Analyzer` (winning rate + distribution). S
 
 so Risk can condition estimates on gap size, venues, and size — not only a single global win rate.
 
+## Data warehouse and backtest replay (P7)
+
+The **warehouse** is HHLD’s local **backtest tape library**: store normalized market history once, replay it through the same Strategy/Risk path as paper trading. It is **not** on the live or paper **hot path** — trading reads **current** books from `Exchange`; the warehouse serves **offline** replay and analysis.
+
+```text
+Crawl (sample NDJSON / fake / later HL+GRVT)  →  Warehouse (SQLite)  →  sim.InputFromStore  →  sim.Replay  →  PnL / win rate
+```
+
+### Purpose of SQLite (v1)
+
+| Role | Why |
+|------|-----|
+| **Persist crawled data** | Books/ticks land in one normalized store instead of ad-hoc files per run |
+| **Feed P6 backtest** | Query by symbol + time range → `sim.Input` for `Replay.Run` |
+| **Same types as live** | Stored as HHLD `exchange.Book` / `exchange.Tick`, not vendor JSON |
+| **Low cost** | Single `.db` file, no DB server — fits solo-operator / one-instance deploy |
+
+Load sample data:
+
+```bash
+go run ./cmd/hhld-crawl -sample data/samples/btcusd_books.ndjson -db ./hhld.db
+```
+
+In Go: `crawl.SampleFile` or `crawl.FakeDual` → `warehouse.OpenSQLite` → `sim.InputFromStore` → `sim.NewReplay().Run(...)`.
+
+Orders and realized PnL from backtests still go through `admin` / `pnl` during replay; the warehouse holds **market input only**, not trading audit.
+
+### JSON vs BSON (and Parquet)
+
+**JSON is the default for HHLD v1** — human-readable, already used for config, crawl samples, and admin HTTP.
+
+| Format | Use in HHLD | Notes |
+|--------|-------------|-------|
+| **JSON / NDJSON** | Crawl interchange (`data/samples/*.ndjson`), nested bids/asks inside SQLite rows | Easy to inspect, diff, and debug; matches Go `encoding/json` |
+| **SQLite + JSON columns** | Warehouse v1 (`warehouse.SQLite`) | Scalar fields (symbol, time, venue) indexed; book levels as JSON text — fine at P7 scale |
+| **BSON** | Not used today | Fits MongoDB-style document stores or very large binary archives; adds tooling cost without benefit at current volume |
+| **Parquet** | Later, optional | Columnar exports for long historical analytics ([tech-stack.md](tech-stack.md)); not required for core SQLite warehouse |
+
+Rule of thumb:
+
+- **JSON** for crawl files, config, HTTP APIs, and nested book levels in SQLite.
+- **BSON** only if you adopt a document DB or hit size/perf limits JSON cannot handle.
+- **Parquet** when exporting large history for external analysis — not the primary v1 store.
+
 ## Paper place and partial failure
 
 `PlaceDecision` places **all legs concurrently**. If one venue times out and the other accepts:
@@ -175,7 +220,7 @@ go run ./cmd/hhld -demo
 
 - Not live capital or real exchange order placement  
 - Not prediction-market trading or prediction↔crypto hedge (later)  
-- Not full backtest warehouse replay (P6–P7) or live HL/GRVT adapters (P8–P9)  
+- Not full historical warehouse coverage (P7 is minimal SQLite + JSON/NDJSON crawl; Parquet/multi-cloud later) or live HL/GRVT adapters (P8–P9)  
 
 ## Minimal mental example
 

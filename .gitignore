@@ -15,7 +15,8 @@ vendor/
 *.swp
 .DS_Store
 
-# Local env / secrets
-.env
+# Local warehouse DBs (P7)
+*.db
+/data/warehouse/
 .env.*
 !.env.example

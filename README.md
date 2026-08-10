@@ -1,6 +1,6 @@
 # HHLD finance
 
-**Constitution:** [spec/mission.md](spec/mission.md) · [spec/tech-stack.md](spec/tech-stack.md) · [spec/roadmap.md](spec/roadmap.md) · [spec/trading.md](spec/trading.md) · [spec/networking.md](spec/networking.md) · [spec/concurrency.md](spec/concurrency.md) · [implementation](spec/roadmap/README.md)
+**Constitution:** [spec/mission.md](spec/mission.md) · [spec/tech-stack.md](spec/tech-stack.md) · [spec/roadmap.md](spec/roadmap.md) · [spec/trading.md](spec/trading.md) · [spec/networking.md](spec/networking.md) · [spec/concurrency.md](spec/concurrency.md) · [spec/quality-assurance.md](spec/quality-assurance.md) · [implementation](spec/roadmap/README.md)
 
 ## Layout (P0)
 
@@ -14,7 +14,8 @@ Go module `github.com/nguyenducthinhdl/hhld`. Packages under [`src/`](src/) (P0 
 | [`src/risk`](src/risk/) | Risk Management: miss-more gates + VaR/win-rate estimators |
 | [`src/pnl`](src/pnl/) | Profit and loss |
 | [`src/sim`](src/sim/) | Backtest sim + winning rate/distribution analysis |
-| [`src/warehouse`](src/warehouse/) | Market data store |
+| [`src/warehouse`](src/warehouse/) | Market data store (SQLite) |
+| [`src/crawl`](src/crawl/) | Crawl stubs → warehouse (sample NDJSON, fake dual) |
 | [`src/admin`](src/admin/) | Order / PnL audit (+ HTTP `/trading/pnl`, `/trading/orders`) |
 
 Example config: [`configs/default.json`](configs/default.json).
@@ -26,7 +27,9 @@ go test ./...
 # lightweight PnL / orders dashboard (seeded demo data)
 go run ./cmd/hhld -demo
 # → http://127.0.0.1:8080/trading/pnl
-# → http://127.0.0.1:8080/trading/orders?trace_id=demo-arb-1
+
+# crawl sample books into local SQLite warehouse (P7)
+go run ./cmd/hhld-crawl -sample data/samples/btcusd_books.ndjson -db ./hhld.db
 ```
 
 See [spec/trading.md](spec/trading.md#audit-dashboard-lightweight).

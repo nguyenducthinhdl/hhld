@@ -52,6 +52,7 @@ Constitution for implementation choices. Optimize for a solo operator: speed of 
 - Metrics dashboards only when paper live feeds prove the need.
 - Networking / book-stale / unknown-ack doctrine: [networking.md](networking.md).
 - Concurrent orders / per-hedge Risk ordering: [concurrency.md](concurrency.md).
+- Tests and coverage bar: [quality-assurance.md](quality-assurance.md).
 
 ## Explicitly out of scope (this repo)
 
