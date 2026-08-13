@@ -249,15 +249,23 @@ No polished charts yet (P5 skipped visualization). Operators inspect PnL and ord
 | `GET /trading/pnl?format=json` | Same as JSON |
 | `GET /trading/orders` | Order table; query `trace_id`, `hedge_id`, `venue`, `symbol` |
 | `GET /trading/orders?format=json` | Same as JSON |
+| `GET /trading/market` | Dual books, gap, trade signal, signal config (HTML; polls JSON) |
+| `GET /trading/market?format=json` | Same as JSON; optional `symbol=` |
 
 Run locally:
 
 ```bash
 go run ./cmd/hhld -demo
 # open http://127.0.0.1:8080/trading/pnl
+
+go run ./cmd/hhld -demo-market
+# open http://127.0.0.1:8080/trading/market
+
+go run ./cmd/hhld -live-market
+# same URL — live Hyperliquid + GRVT books/ticks (paper place via fake)
 ```
 
-`-demo` seeds one paper arb (`trace_id=demo-arb-1`) so the pages are non-empty. Wire your live `admin.Auditor` into `admin.Handler` for a real session.
+`-demo` seeds one paper arb (`trace_id=demo-arb-1`). `-demo-market` drives fake dual books; `-live-market` uses public HL/GRVT market data so each venue shows real **price** and **size** (plus native instrument / mid). Config on the market page is **read-only** (edit `configs/default.json`). Wire your live `admin.Auditor` into `admin.Handler` for a real session.
 
 ## What paper arb is not
 

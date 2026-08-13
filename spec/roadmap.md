@@ -137,6 +137,13 @@ flowchart LR
 - **Done when**: paper trading loop runs against HL + GRVT feeds with auditable orders.
 - **Skip**: real capital, production SLAs.
 
+### P9.5 — Market visualization
+
+- **Status:** [done](roadmap/p95.md)
+- **Goal**: Dashboard for dual order books, gap, trade signal, and read-only config knobs.
+- **Done when**: `GET /trading/market` shows venue A/B depth, gap, Decision/miss, fees/size/min_gap/interval/budgets in demo mode.
+- **Skip**: editing config from UI, TradingView, live capital buttons.
+
 ### P10 — Monitoring and hardening
 
 - **Goal**: Trace mismatched/lost orders; deploy on one medium instance.

@@ -98,6 +98,7 @@ Merge blockers: each row must stay **pass**.
 | Warehouse → sim           | `[TestSampleFileToSimReplay](../src/crawl/crawl_test.go)`                                            | NDJSON crawl → SQLite → Replay → positive PnL              | pass    |
 | Admin PnL URL             | `[TestHandler_TradingPnL](../src/admin/http_test.go)`                                                | `GET /trading/pnl?format=json`                             | pass    |
 | Admin orders URL          | `[TestHandler_TradingOrders](../src/admin/http_test.go)`                                             | `GET /trading/orders` lists TraceID legs                   | pass    |
+| Market dashboard          | `[TestHandler_TradingMarketJSON](../src/admin/http_test.go)`                                         | Dual books + gap + config knobs JSON                       | pass    |
 | BookStore delta apply     | `[TestBookStore_SnapshotThenDelta](../src/market/store_test.go)`                                     | Size `0` removes level; merge by price                     | pass    |
 | Delta before snapshot     | `[TestBookStore_DeltaBeforeSnapshotRejected](../src/market/store_test.go)`                           | Reject until snapshot for key                              | pass    |
 | Runner every update       | `[TestRunner_EvaluatesOnEachVenueUpdate](../src/market/runner_test.go)`                              | A-only miss; then both → OnBooks; B update → OnBooks again | pass    |

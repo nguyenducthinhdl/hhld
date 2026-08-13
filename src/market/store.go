@@ -3,6 +3,7 @@ package market
 import (
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/nguyenducthinhdl/hhld/src/exchange"
 )
@@ -13,9 +14,10 @@ type bookKey struct {
 }
 
 type bookState struct {
-	book    exchange.Book
-	seq     uint64
-	hasSnap bool
+	book      exchange.Book
+	seq       uint64
+	hasSnap   bool
+	updatedAt time.Time
 }
 
 // BookStore holds the latest book per (venue, symbol), applying snapshots and deltas.
@@ -51,7 +53,8 @@ func (s *BookStore) applySnapshot(b exchange.Book) (exchange.Book, error) {
 	}
 	key := bookKey{venue: b.Venue, symbol: b.Symbol}
 	cp := cloneBook(b)
-	s.byKey[key] = &bookState{book: cp, hasSnap: true, seq: 0}
+	now := time.Now().UTC()
+	s.byKey[key] = &bookState{book: cp, hasSnap: true, seq: 0, updatedAt: now}
 	return cloneBook(cp), nil
 }
 
@@ -71,6 +74,7 @@ func (s *BookStore) applyDelta(d BookDelta) (exchange.Book, error) {
 	if d.Seq != 0 {
 		st.seq = d.Seq
 	}
+	st.updatedAt = time.Now().UTC()
 	return cloneBook(st.book), nil
 }
 
@@ -83,6 +87,17 @@ func (s *BookStore) Get(venue exchange.VenueID, symbol exchange.Symbol) (exchang
 		return exchange.Book{}, false
 	}
 	return cloneBook(st.book), true
+}
+
+// LastUpdated returns when the book was last applied locally (feed receive time).
+func (s *BookStore) LastUpdated(venue exchange.VenueID, symbol exchange.Symbol) (time.Time, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	st, ok := s.byKey[bookKey{venue: venue, symbol: symbol}]
+	if !ok || !st.hasSnap || st.updatedAt.IsZero() {
+		return time.Time{}, false
+	}
+	return st.updatedAt, true
 }
 
 // Clear removes the book for a venue/symbol (e.g. after reconnect before next snapshot).

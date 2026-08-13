@@ -44,7 +44,8 @@ Offline path (not on the hot loop): `crawl` → `warehouse` → `sim.Replay` use
 | `market` | `BookEvent`, `BookStore`, bounded `Bus`, `Runner`, bridges |
 | `strategy` | `OnBooks` → `Decision`; `PlaceDecision` places legs |
 | `risk` | `TryAcquire` + `Evaluate` (fees, stale, overload) |
-| `admin` / `pnl` | Order audit + realized PnL |
+| `admin` / `pnl` | Order audit + realized PnL + market dashboard |
+| `viz` | Snapshot builders (gap, signal, config) for `/trading/market` |
 | `warehouse` / `crawl` / `sim` | Offline data + backtest |
 
 Strategy never imports vendor SDKs. Adapters normalize vendor payloads into HHLD types.
@@ -86,6 +87,8 @@ risk.budgets["hyperliquid/BTCUSD"] → notional cap
 REST `SnapshotBook` is available for cold start / diagnostics; the hot path is WS → Bus.
 
 Orders: adapters currently return `ErrReadOnly` for live HL/GRVT. Paper uses `fake` (or later paper fills on live books). Same `PlaceOrder` call site either way.
+
+Per-venue wire formats and parse tables: [exchange/hyperliquid.md](exchange/hyperliquid.md), [exchange/grvt.md](exchange/grvt.md).
 
 ## Order book model
 

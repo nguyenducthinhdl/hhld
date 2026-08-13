@@ -3,6 +3,7 @@ package market
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"sync"
 	"time"
 
@@ -23,15 +24,23 @@ type feeParams interface {
 
 // RunnerConfig wires dual venues and the trading pipeline.
 type RunnerConfig struct {
-	VenueA  exchange.VenueID
-	VenueB  exchange.VenueID
-	Symbols []exchange.Symbol
-	Store   *BookStore
+	VenueA   exchange.VenueID
+	VenueB   exchange.VenueID
+	Symbols  []exchange.Symbol
+	Store    *BookStore
 	Strategy strategy.Strategy
-	Risk    risk.Risk
-	Venues  strategy.Venues // paper place map
-	Auditor admin.Auditor
-	Tracker pnl.Tracker
+	Risk     risk.Risk
+	Venues   strategy.Venues // paper place map
+	Auditor  admin.Auditor
+	Tracker  pnl.Tracker
+	// Signals receives Decision / miss notifications for the market dashboard (optional).
+	Signals SignalNotifier
+}
+
+// SignalNotifier is implemented by viz.SignalLog (avoids market→viz import).
+type SignalNotifier interface {
+	NotifyDecision(sym exchange.Symbol, d strategy.Decision, grossGap float64)
+	NotifyMiss(sym exchange.Symbol, reason string)
 }
 
 // Runner applies bus events to the BookStore and evaluates Strategy on every update
@@ -107,37 +116,65 @@ func (r *Runner) evaluate(sym exchange.Symbol) {
 		r.mu.Lock()
 		r.missPeer++
 		r.mu.Unlock()
+		if r.cfg.Signals != nil {
+			r.cfg.Signals.NotifyMiss(sym, "peer_missing")
+		}
 		return
 	}
 	books := []exchange.Book{bookA, bookB}
 	ctx := context.Background()
 	decisions, err := r.cfg.Strategy.OnBooks(ctx, books)
 	if err != nil {
+		if r.cfg.Signals != nil {
+			r.cfg.Signals.NotifyMiss(sym, "strategy_error")
+		}
 		return
 	}
 	r.mu.Lock()
 	r.onBooksN++
 	r.mu.Unlock()
 
+	if len(decisions) == 0 {
+		if r.cfg.Signals != nil {
+			r.cfg.Signals.NotifyMiss(sym, "no_edge")
+		}
+		return
+	}
+
 	mkt := risk.MarketView{Books: books, Now: maxBookTime(books)}
 	for _, d := range decisions {
-		r.execute(ctx, d, mkt)
+		r.execute(ctx, d, mkt, sym)
 	}
 }
 
-func (r *Runner) execute(ctx context.Context, d strategy.Decision, mkt risk.MarketView) {
+func (r *Runner) execute(ctx context.Context, d strategy.Decision, mkt risk.MarketView, sym exchange.Symbol) {
 	var release func()
 	if aq, ok := r.cfg.Risk.(acquirer); ok {
 		var v risk.Verdict
 		release, v = aq.TryAcquire(d)
 		if !v.OK {
+			if r.cfg.Signals != nil {
+				r.cfg.Signals.NotifyMiss(sym, v.Reason)
+			}
 			return
 		}
 		defer release()
 	}
 	v, err := r.cfg.Risk.Evaluate(ctx, d, mkt)
-	if err != nil || !v.OK {
+	if err != nil {
+		if r.cfg.Signals != nil {
+			r.cfg.Signals.NotifyMiss(sym, "evaluate_error")
+		}
 		return
+	}
+	if !v.OK {
+		if r.cfg.Signals != nil {
+			r.cfg.Signals.NotifyMiss(sym, v.Reason)
+		}
+		return
+	}
+	if r.cfg.Signals != nil {
+		r.cfg.Signals.NotifyDecision(sym, d, estimateGrossGap(d))
 	}
 	results, _ := strategy.PlaceDecision(ctx, r.cfg.Venues, d)
 	fees := risk.FeeSchedule{}
@@ -145,6 +182,27 @@ func (r *Runner) execute(ctx context.Context, d strategy.Decision, mkt risk.Mark
 		fees = p.Params().FeeSchedule()
 	}
 	_ = admin.RecordPaperDecision(ctx, r.cfg.Auditor, r.cfg.Tracker, d, results, fees)
+}
+
+func estimateGrossGap(d strategy.Decision) float64 {
+	var buyPx, sellPx float64
+	var haveBuy, haveSell bool
+	for _, leg := range d.Legs {
+		px, err := strconv.ParseFloat(leg.Price, 64)
+		if err != nil {
+			continue
+		}
+		switch leg.Side {
+		case exchange.SideBuy:
+			buyPx, haveBuy = px, true
+		case exchange.SideSell:
+			sellPx, haveSell = px, true
+		}
+	}
+	if haveBuy && haveSell {
+		return sellPx - buyPx
+	}
+	return 0
 }
 
 // OnBooksCalls returns how many times OnBooks was invoked (tests).

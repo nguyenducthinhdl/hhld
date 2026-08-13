@@ -57,8 +57,12 @@ func TestSampleFile_Errors(t *testing.T) {
 	if err := (crawl.SampleFile{Path: "x.ndjson"}).Run(context.Background(), nil); err == nil {
 		t.Fatal("want nil store error")
 	}
-	if err := (crawl.SampleFile{Path: filepath.Join(t.TempDir(), "missing.ndjson")}).Run(context.Background(), st); err == nil {
-		t.Fatal("want missing file error")
+	missing := filepath.Join(t.TempDir(), "nested", "missing.ndjson")
+	if err := (crawl.SampleFile{Path: missing}).Run(context.Background(), st); err != nil {
+		t.Fatalf("missing file should be created empty: %v", err)
+	}
+	if _, err := os.Stat(missing); err != nil {
+		t.Fatalf("want created file: %v", err)
 	}
 
 	bad := filepath.Join(t.TempDir(), "bad.ndjson")

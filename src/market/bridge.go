@@ -2,6 +2,7 @@ package market
 
 import (
 	"context"
+	"log"
 	"time"
 
 	"github.com/nguyenducthinhdl/hhld/src/exchange"
@@ -37,12 +38,46 @@ func BridgeFakeDeltas(ex *fake.Exchange, symbol exchange.Symbol, kind exchange.K
 	})
 }
 
+// BridgeGRVTPoll polls GRVT REST SnapshotBook at interval and publishes into the bus.
+// Use as a fallback when the GRVT WS protocol is unavailable (e.g. API breaking change).
+// Blocks until ctx is canceled.
+func BridgeGRVTPoll(ctx context.Context, ad *grvt.Adapter, symbol exchange.Symbol, interval time.Duration, bus *Bus) {
+	if interval <= 0 {
+		interval = 2 * time.Second
+	}
+	t := time.NewTicker(interval)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			snapCtx, cancel := context.WithTimeout(ctx, interval)
+			b, err := ad.SnapshotBook(snapCtx, symbol)
+			cancel()
+			if err != nil {
+				if ctx.Err() == nil {
+					log.Printf("grvt poll %s: %v", symbol, err)
+				}
+				continue
+			}
+			bus.Publish(SnapshotEvent(b))
+		}
+	}
+}
+
 // BridgeGRVTDeltas streams GRVT v1.book.d into the bus.
-// On each WS session start, store.Clear is called for the venue/symbol so the next
-// snapshot resets state (P8 reconnect doctrine). Snapshots and deltas are published.
+// On WS reconnect (not the first session), store.Clear resets state before the next
+// snapshot (P8 reconnect doctrine). The first session leaves any seeded REST book intact
+// until the first WS snapshot arrives.
 func BridgeGRVTDeltas(ctx context.Context, ad *grvt.Adapter, symbol exchange.Symbol, store *BookStore, bus *Bus) error {
+	firstSession := true
 	return ad.SubscribeBookDeltas(ctx, symbol,
 		func(sym exchange.Symbol) {
+			if firstSession {
+				firstSession = false
+				return
+			}
 			if store != nil {
 				store.Clear(ad.ID(), sym)
 			}

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -47,6 +48,9 @@ func (c SampleFile) Run(ctx context.Context, store warehouse.Store) error {
 	}
 	if strings.TrimSpace(c.Path) == "" {
 		return fmt.Errorf("crawl: sample path required")
+	}
+	if err := ensureFile(c.Path); err != nil {
+		return err
 	}
 	f, err := os.Open(c.Path)
 	if err != nil {
@@ -106,4 +110,29 @@ func (c SampleFile) Run(ctx context.Context, store warehouse.Store) error {
 		return fmt.Errorf("crawl: read sample: %w", err)
 	}
 	return nil
+}
+
+// ensureFile creates path (and parent dirs) if missing or empty.
+func ensureFile(path string) error {
+	dir := filepath.Dir(path)
+	if dir != "." && dir != "" {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return fmt.Errorf("crawl: mkdir %q: %w", dir, err)
+		}
+	}
+	info, err := os.Stat(path)
+	if err == nil {
+		if info.IsDir() {
+			return fmt.Errorf("crawl: sample %q is a directory", path)
+		}
+		return nil
+	}
+	if !os.IsNotExist(err) {
+		return fmt.Errorf("crawl: stat sample %q: %w", path, err)
+	}
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		return fmt.Errorf("crawl: create sample %q: %w", path, err)
+	}
+	return f.Close()
 }

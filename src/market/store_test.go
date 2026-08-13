@@ -87,4 +87,23 @@ func TestBookStore_Clear(t *testing.T) {
 	if _, ok := st.Get("hl", "BTCUSD"); ok {
 		t.Fatal("want cleared")
 	}
+	if _, ok := st.LastUpdated("hl", "BTCUSD"); ok {
+		t.Fatal("want no last updated after clear")
+	}
+}
+
+func TestBookStore_LastUpdated(t *testing.T) {
+	st := market.NewBookStore()
+	before := time.Now().UTC()
+	_, err := st.Apply(market.SnapshotEvent(exchange.Book{
+		Venue: "hl", Symbol: "BTCUSD",
+		Bids: []exchange.Level{{Price: "1", Size: "1"}},
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated, ok := st.LastUpdated("hl", "BTCUSD")
+	if !ok || updated.Before(before) {
+		t.Fatalf("LastUpdated: ok=%v updated=%v before=%v", ok, updated, before)
+	}
 }

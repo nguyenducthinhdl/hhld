@@ -4,12 +4,16 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/nguyenducthinhdl/hhld/src/admin"
+	"github.com/nguyenducthinhdl/hhld/src/config"
 	"github.com/nguyenducthinhdl/hhld/src/exchange"
+	"github.com/nguyenducthinhdl/hhld/src/market"
 	"github.com/nguyenducthinhdl/hhld/src/pnl"
+	"github.com/nguyenducthinhdl/hhld/src/viz"
 )
 
 // TestHandler_TradingPnL serves GET /trading/pnl for audit visibility.
@@ -84,5 +88,50 @@ func TestHandler_TradingOrders(t *testing.T) {
 	}
 	if body.Count != 2 {
 		t.Fatalf("want 2 orders, got %+v", body)
+	}
+}
+
+func TestHandler_TradingMarketJSON(t *testing.T) {
+	cfg := config.Default()
+	store := market.NewBookStore()
+	ts := time.Unix(1_700_000_000, 0).UTC()
+	_, _ = store.Apply(market.SnapshotEvent(exchange.Book{
+		Venue: "hyperliquid", Symbol: "BTCUSD", Kind: exchange.KindPerp, Time: ts,
+		Bids: []exchange.Level{{Price: "100.0", Size: "1"}},
+		Asks: []exchange.Level{{Price: "100.1", Size: "1"}},
+	}))
+	_, _ = store.Apply(market.SnapshotEvent(exchange.Book{
+		Venue: "grvt", Symbol: "BTCUSD", Kind: exchange.KindPerp, Time: ts,
+		Bids: []exchange.Level{{Price: "100.8", Size: "1"}},
+		Asks: []exchange.Level{{Price: "100.9", Size: "1"}},
+	}))
+	src := viz.Source{Cfg: cfg, Store: store}
+	mux := http.NewServeMux()
+	admin.Handler{
+		Auditor: admin.NewMemory(nil),
+		Market:  func(sym exchange.Symbol) any { return src.BuildSnapshot(sym) },
+	}.Register(mux)
+
+	req := httptest.NewRequest(http.MethodGet, "/trading/market?format=json&symbol=BTCUSD", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d %s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, `"min_gap"`) || !strings.Contains(body, `"effective_size"`) {
+		t.Fatalf("missing config: %s", body)
+	}
+	if !strings.Contains(body, `"above_min_gap"`) {
+		t.Fatalf("missing gap: %s", body)
+	}
+	if !strings.Contains(body, `"best_bid"`) || !strings.Contains(body, `"best_ask_size"`) {
+		t.Fatalf("missing tob: %s", body)
+	}
+	if !strings.Contains(body, `"native_symbol"`) {
+		t.Fatalf("missing native: %s", body)
+	}
+	if !strings.Contains(body, `"latency_ms"`) {
+		t.Fatalf("missing latency: %s", body)
 	}
 }

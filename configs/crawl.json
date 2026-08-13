@@ -1,0 +1,23 @@
+{
+  "output": "data/crawl/btcusd-live.ndjson",
+  "config": "configs/default.json",
+  "duration": "1m",
+  "feeds": [
+    {
+      "exchange": "hyperliquid",
+      "symbol": "BTCUSD",
+      "method": "subscribe_book"
+    },
+    {
+      "exchange": "hyperliquid",
+      "symbol": "BTCUSD",
+      "method": "subscribe_ticks"
+    },
+    {
+      "exchange": "grvt",
+      "symbol": "BTCUSD",
+      "method": "snapshot_book",
+      "interval": "2s"
+    }
+  ]
+}

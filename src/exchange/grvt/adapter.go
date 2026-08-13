@@ -134,7 +134,9 @@ func (a *Adapter) SubscribeBook(ctx context.Context, symbol exchange.Symbol, h e
 	if err != nil {
 		return err
 	}
-	feed := fmt.Sprintf("%s@%d-%d", inst, a.cfg.BookRateMS, a.cfg.BookDepth)
+	// Selector format: instrument@rate-numLevels-depth (per GRVT docs 2026-08).
+	// numLevels controls aggregation buckets; use 1 (finest) for best-price fidelity.
+	feed := fmt.Sprintf("%s@%d-1-%d", inst, a.cfg.BookRateMS, a.cfg.BookDepth)
 	sub, _ := json.Marshal(map[string]any{
 		"stream":  "v1.book.s",
 		"feed":    []string{feed},
@@ -300,27 +302,34 @@ func (a *Adapter) wsSession(ctx context.Context, subscribeMsg []byte, stream str
 			if r.err != nil {
 				return r.err
 			}
-			var env struct {
-				Stream   string          `json:"stream"`
-				Selector string          `json:"selector"`
-				Feed     json.RawMessage `json:"feed"`
-				Subs     []string        `json:"subs"`
-			}
-			if err := json.Unmarshal(r.msg, &env); err != nil {
-				continue
-			}
-			if len(env.Subs) > 0 && len(env.Feed) == 0 {
-				continue // subscribe ack
-			}
-			if env.Stream != "" && env.Stream != stream {
-				continue
-			}
-			if len(env.Feed) == 0 || string(env.Feed) == "null" || string(env.Feed) == "{}" {
-				continue
-			}
-			if err := onFeed(env.Feed); err != nil {
-				return err
-			}
+		var env struct {
+			Stream   string          `json:"stream"`
+			Selector string          `json:"selector"`
+			Feed     json.RawMessage `json:"feed"`
+			Subs     []string        `json:"subs"`
+			Error    *struct {
+				Code    int    `json:"code"`
+				Message string `json:"message"`
+			} `json:"error"`
+		}
+		if err := json.Unmarshal(r.msg, &env); err != nil {
+			continue
+		}
+		if env.Error != nil {
+			return fmt.Errorf("grvt: rpc error %d: %s", env.Error.Code, env.Error.Message)
+		}
+		if len(env.Subs) > 0 && len(env.Feed) == 0 {
+			continue // subscribe ack
+		}
+		if env.Stream != "" && env.Stream != stream {
+			continue
+		}
+		if len(env.Feed) == 0 || string(env.Feed) == "null" || string(env.Feed) == "{}" {
+			continue
+		}
+		if err := onFeed(env.Feed); err != nil {
+			return err
+		}
 		}
 	}
 }
