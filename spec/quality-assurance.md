@@ -89,9 +89,9 @@ Merge blockers: each row must stay **pass**.
 | Unhealthy venue miss      | `[TestGate_RejectsUnhealthyVenue](../src/risk/gate_test.go)`                                         | Reconnecting/down venue → no trade                         | pass    |
 | Lock busy / overload      | `[TestGate_TryAcquire_LockBusy](../src/risk/gate_test.go)`, `[Overloaded](../src/risk/gate_test.go)` | Concurrency: same arb key / global in-flight cap           | pass    |
 | Rate limit                | `[TestGate_RateLimited](../src/risk/gate_test.go)`                                                   | Second accept within `order_interval` → `rate_limited`     | pass    |
-| Notional budget           | `[TestGate_BudgetExceeded](../src/risk/gate_test.go)`                                                | `sum(price×size)` over `risk.budgets` → `budget_exceeded`  | pass    |
-| Max volume                | `[TestGate_MaxVolumeExceeded](../src/risk/gate_test.go)`                                             | Leg size above `max_volume_trade` rejected                 | pass    |
-| Size clamp                | `[TestCrossVenueArb_ClampsToMaxVolumeTrade](../src/strategy/coverage_test.go)`                        | Effective size = min(size, max_volume)                     | pass    |
+| Notional budget           | `[TestGate_BudgetExceeded](../src/risk/gate_test.go)`                                                | `sum(price×size)` over venue budget → `budget_exceeded`    | pass    |
+| Max size                    | `[TestGate_MaxVolumeExceeded](../src/risk/gate_test.go)`                                             | Leg size above `trading.max_size` rejected                 | pass    |
+| Size by symbol              | `[TestCrossVenueArb_UsesSizeBySymbol](../src/strategy/coverage_test.go)`                              | Legs use per-symbol `max_size`                             | pass    |
 | 1-leg order timeout       | `[TestPlaceDecision_OneLegOrderTimeout](../src/strategy/paper_test.go)`                              | One venue times out; other may accept                      | pass    |
 | Partial-leg audit         | `[TestRecordPaperDecision_PartialLegStillAuditable](../src/admin/memory_test.go)`                    | TraceID shows `accepted` + `error`; one fill only          | pass    |
 | PnL after modeled fees    | `[TestRecordPaperDecision_ReconstructableArb](../src/admin/memory_test.go)`                          | Realized ≈ gap − `FeeSchedule` costs                       | pass    |
@@ -99,6 +99,9 @@ Merge blockers: each row must stay **pass**.
 | Admin PnL URL             | `[TestHandler_TradingPnL](../src/admin/http_test.go)`                                                | `GET /trading/pnl?format=json`                             | pass    |
 | Admin orders URL          | `[TestHandler_TradingOrders](../src/admin/http_test.go)`                                             | `GET /trading/orders` lists TraceID legs                   | pass    |
 | Market dashboard          | `[TestHandler_TradingMarketJSON](../src/admin/http_test.go)`                                         | Dual books + gap + config knobs JSON                       | pass    |
+| Sim replay series         | `[TestHandler_SimJSONAndRun](../src/admin/http_test.go)`                                             | `/sim` JSON + POST overlay                                 | pass    |
+| NDJSON input              | `[TestInputFromNDJSON_SampleAndEmpty](../src/sim/input_test.go)`                                     | Sample + empty crawl files                                 | pass    |
+| Trace any venues          | `[TestTrace_GenericVenuesAndIgnoreThird](../src/sim/series_test.go)`                                 | `ex_a`/`ex_b`; extra venue ignored; hover explain          | pass    |
 | BookStore delta apply     | `[TestBookStore_SnapshotThenDelta](../src/market/store_test.go)`                                     | Size `0` removes level; merge by price                     | pass    |
 | Delta before snapshot     | `[TestBookStore_DeltaBeforeSnapshotRejected](../src/market/store_test.go)`                           | Reject until snapshot for key                              | pass    |
 | Runner every update       | `[TestRunner_EvaluatesOnEachVenueUpdate](../src/market/runner_test.go)`                              | A-only miss; then both → OnBooks; B update → OnBooks again | pass    |
@@ -134,13 +137,14 @@ Merge blockers: each row must stay **pass**.
 | `[TestDefault_Validate](../src/config/config_test.go)`                  | Default BTCUSD / HL+GRVT config validates      | pass   |
 | `[TestParseJSON_OverridesAndMultiSymbol](../src/config/config_test.go)` | JSON overrides size/gap/timeouts; multi-symbol | pass   |
 | `[TestLoadJSON_FromFile](../src/config/config_test.go)`                 | Load config from disk path                     | pass   |
+| `[TestLoadJSON_RepoDefault](../src/config/config_test.go)`              | `configs/default.json` loads and maps natives  | pass   |
 | `[TestValidate_RejectsBadVenues](../src/config/config_test.go)`         | Identical venues.a/b rejected                  | pass   |
 | `[TestDuration_MarshalUnmarshal](../src/config/coverage_test.go)`       | Duration string / nanosecond JSON              | pass   |
-| `[TestValidate_MoreRejects](../src/config/coverage_test.go)`            | Empty symbols, bad fees, fill factor, etc.     | pass   |
-| `[TestParseJSON_InvalidAndLoadMissing](../src/config/coverage_test.go)` | Bad JSON / missing file / empty symbols        | pass   |
+| `[TestValidate_MoreRejects](../src/config/coverage_test.go)`            | Empty symbol_map, bad fees, fill factor, etc.  | pass   |
+| `[TestParseJSON_InvalidAndLoadMissing](../src/config/coverage_test.go)` | Bad JSON / missing file / empty symbol_map     | pass   |
 | `[TestNativeSymbol_FromDefaultMap](../src/config/symbolmap_test.go)`    | Default map HL/GRVT native ids                 | pass   |
-| `[TestParseJSON_LegacySymbolMap](../src/config/symbolmap_test.go)`      | Flat symbol_map still loads; defaults applied  | pass   |
-| `[TestParseJSON_RichSymbolMapAndBudgets](../src/config/symbolmap_test.go)` | Rich map + budgets + effective size clamp   | pass   |
+| `[TestParseJSON_SymbolMapArray](../src/config/symbolmap_test.go)`       | Array symbol_map + default order_interval      | pass   |
+| `[TestParseJSON_PerVenueBudgetsAndInterval](../src/config/symbolmap_test.go)` | Per-venue budget + effective size        | pass   |
 
 
 
@@ -187,7 +191,7 @@ Merge blockers: each row must stay **pass**.
 | `[TestSnapshotBooks_OneLegBookTimeout](../src/strategy/paper_test.go)`        | One venue book snapshot times out         | pass   |
 | `[TestSnapshotBooks_TwoLegsBookTimeout](../src/strategy/paper_test.go)`       | Both book paths time out                  | pass   |
 | `[TestArbConfigFrom_AndName](../src/strategy/coverage_test.go)`               | Config → ArbConfig; strategy name         | pass   |
-| `[TestCrossVenueArb_ClampsToMaxVolumeTrade](../src/strategy/coverage_test.go)` | Legs use min(size, max_volume_trade)      | pass   |
+| `[TestCrossVenueArb_UsesSizeBySymbol](../src/strategy/coverage_test.go)`      | Legs use per-symbol max_size              | pass   |
 | `[TestCrossVenueArb_EmptyDefaultsAndNoGap](../src/strategy/coverage_test.go)` | Below min_gap → no Decision; canceled ctx | pass   |
 
 
@@ -211,9 +215,10 @@ Merge blockers: each row must stay **pass**.
 | `[TestGate_ConcurrentSameKeySerialized](../src/risk/gate_test.go)`      | Contention produces lock_busy misses | pass   |
 | `[TestGate_RateLimited](../src/risk/gate_test.go)`                      | Per-symbol order_interval miss       | pass   |
 | `[TestGate_BudgetExceeded](../src/risk/gate_test.go)`                   | Notional budget miss                 | pass   |
-| `[TestGate_MaxVolumeExceeded](../src/risk/gate_test.go)`                | max_volume_trade defense             | pass   |
+| `[TestGate_MaxVolumeExceeded](../src/risk/gate_test.go)`                | max_size defense                 | pass   |
 | `[TestParamsFromConfig_BudgetsAndIntervals](../src/risk/gate_test.go)`  | Config → budgets / interval / max vol | pass  |
 | `[TestVenueFee_RateFixedCommission](../src/risk/fee_test.go)`           | Rate, fixed, commission additive     | pass   |
+| `[TestExplainDecision_GapAndFees](../src/risk/explain_test.go)`         | Gap formula + per-leg fee breakdown  | pass   |
 | `[TestFeeSchedule_PerVenueAndDefault](../src/risk/fee_test.go)`         | Per-venue + default bps fallback     | pass   |
 | `[TestGate_UsesPerVenueFees](../src/risk/fee_test.go)`                  | Evaluate uses venue schedule         | pass   |
 | `[TestFormulaEstimator_Estimate](../src/risk/estimator_test.go)`        | Formula estimator returns Estimate   | pass   |

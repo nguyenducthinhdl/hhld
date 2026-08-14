@@ -1,0 +1,9 @@
+body { font-family: ui-sans-serif, system-ui, sans-serif; margin: 2rem; background: #0f1419; color: #e7ecf1; }
+a { color: #7dd3fc; }
+table { border-collapse: collapse; width: 100%; font-size: 0.9rem; }
+th, td { border-bottom: 1px solid #243044; padding: 0.5rem 0.6rem; text-align: left; }
+th { color: #94a3b8; font-weight: 600; }
+.error { color: #fca5a5; }
+.accepted { color: #86efac; }
+nav { margin-bottom: 1.5rem; font-size: 0.9rem; }
+.filter { color:#94a3b8; font-size:0.85rem; }

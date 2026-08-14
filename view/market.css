@@ -1,0 +1,40 @@
+:root { --bg:#0f1419; --panel:#151b24; --line:#243044; --muted:#94a3b8; --text:#e7ecf1; --bid:#34d399; --ask:#f87171; --gap:#fbbf24; --ok:#86efac; }
+body { font-family: ui-sans-serif, system-ui, sans-serif; margin: 1.5rem; background: var(--bg); color: var(--text); }
+a { color: #7dd3fc; }
+nav { margin-bottom: 1rem; font-size: 0.9rem; }
+h1 { font-size: 1.35rem; margin: 0 0 0.25rem; letter-spacing: -0.02em; }
+.sub { color: var(--muted); font-size: 0.85rem; margin-bottom: 1.25rem; }
+.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+@media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+.panel { border: 1px solid var(--line); background: var(--panel); border-radius: 6px; padding: 1rem; }
+.panel h2 { font-size: 0.95rem; margin: 0 0 0.75rem; color: var(--muted); font-weight: 600; }
+.gap { font-size: 1.75rem; font-variant-numeric: tabular-nums; }
+.gap.ok { color: var(--ok); }
+.gap.low { color: var(--gap); }
+.gap.none { color: var(--muted); }
+table.depth { width: 100%; border-collapse: collapse; font-size: 0.85rem; font-variant-numeric: tabular-nums; }
+table.depth th { text-align: left; color: var(--muted); font-weight: 500; padding: 0.2rem 0.35rem 0.45rem; border-bottom: 1px solid var(--line); }
+table.depth td { padding: 0.2rem 0.35rem; }
+.bid { color: var(--bid); }
+.ask { color: var(--ask); }
+.tob { font-size: 0.85rem; margin: 0 0 0.75rem; font-variant-numeric: tabular-nums; line-height: 1.45; }
+.tob .ask { margin-right: 0.75rem; }
+.lat { font-size: 0.8rem; color: var(--muted); margin-top: 0.35rem; }
+.lat.ok { color: var(--ok); }
+.lat.warn { color: var(--gap); }
+.lat.bad { color: #fca5a5; }
+.native { color: var(--muted); font-weight: 400; font-size: 0.8rem; }
+.bar { display: inline-block; height: 0.55rem; background: currentColor; opacity: 0.35; vertical-align: middle; margin-left: 0.35rem; max-width: 6rem; }
+.signal { font-size: 0.95rem; }
+.signal.miss { color: #fca5a5; }
+.signal.decision { color: var(--ok); }
+dl.cfg { display: grid; grid-template-columns: 10rem 1fr; gap: 0.35rem 0.75rem; font-size: 0.85rem; margin: 0; }
+dl.cfg dt { color: var(--muted); }
+dl.cfg dd { margin: 0; font-variant-numeric: tabular-nums; }
+.ticks { font-size: 0.8rem; color: var(--muted); max-height: 8rem; overflow: auto; }
+.row { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem; }
+@media (max-width: 900px) { .row { grid-template-columns: 1fr; } }
+.gap-detail { margin:0.5rem 0 0; }
+.books { margin-bottom:1rem; }
+.waiting { color: var(--muted); }
+.mid { color: var(--muted); margin-top: 0.25rem; }

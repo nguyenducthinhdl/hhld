@@ -10,9 +10,11 @@ Related: [mission.md](mission.md), [networking.md](networking.md), [concurrency.
 - Venues may be **fake** (`src/exchange/fake`) or, later, live read adapters with paper fills.
 - **No real capital** is risked. Acks/fills are simulated so strategy, risk, and audit can be proven end-to-end.
 
+
+
 ## Idea in one line
 
-If venue A’s best **ask** is lower than venue B’s best **bid** by at least `min_gap` (after risk costs), buy on A and sell on B for the configured size.
+If venue A’s best **ask** is lower than venue B’s best **bid** by at least `min_gap` (after risk costs), buy on A and sell on B for a size in `[min_size, max_size]`.
 
 ```text
             Venue A (e.g. Hyperliquid)     Venue B (e.g. GRVT)
@@ -22,10 +24,12 @@ If venue A’s best **ask** is lower than venue B’s best **bid** by at least `
                          buy A / sell B
 ```
 
+
+
 ## End-to-end pipeline
 
 ```text
-Config (symbols, size, min_gap, venues, risk, timeouts)
+Config (symbols, min_size, max_size, min_gap, venues, risk, timeouts)
         │
         ▼
 Books from Exchange(s)     ← fake dual feed or (later) live reads
@@ -44,28 +48,34 @@ strategy.PlaceDecision     ← PlaceOrder on each leg (concurrent)
 admin.RecordPaperDecision  ← order store + pnl fills (reconstruct by TraceID)
 ```
 
+
+
 ## Modules involved
 
-| Step | Package | Role |
-|------|---------|------|
-| Parameters | `config` | Symbols (multi-symbol), size, min gap, venue A/B, risk params, timeouts |
-| Market data | `exchange` / `fake` | Normalized `Book` / `Tick`; delays for timeout tests |
-| Decision | `strategy.CrossVenueArb` | Per-symbol gap detection → two-leg `Decision` |
-| Execution | `strategy.PlaceDecision` | Concurrent paper `PlaceOrder` per leg |
-| Risk | `risk.Gate` | Miss-more: reject bad edge / stale books; serialize per arb key |
-| Audit | `admin` + `pnl` | Persist orders; record fills; realized PnL |
-| Backtest input | `warehouse` + `crawl` | Persist crawled books/ticks; feed `sim.Replay` (offline, not hot path) |
+
+| Step           | Package                  | Role                                                                            |
+| -------------- | ------------------------ | ------------------------------------------------------------------------------- |
+| Parameters     | `config`                 | Symbols (multi-symbol), min/max size, min gap, venue A/B, risk params, timeouts |
+| Market data    | `exchange` / `fake`      | Normalized `Book` / `Tick`; delays for timeout tests                            |
+| Decision       | `strategy.CrossVenueArb` | Per-symbol gap detection → two-leg `Decision`                                   |
+| Execution      | `strategy.PlaceDecision` | Concurrent paper `PlaceOrder` per leg                                           |
+| Risk           | `risk.Gate`              | Miss-more: reject bad edge / stale books; serialize per arb key                 |
+| Audit          | `admin` + `pnl`          | Persist orders; record fills; realized PnL                                      |
+| Backtest input | `warehouse` + `crawl`    | Persist crawled books/ticks; feed `sim.Replay` (offline, not hot path)          |
+
+
+
 
 ## Decision shape
 
 A successful arb `Decision` has:
 
-- **`TraceID`** — links both legs for audit (e.g. `arb-BTCUSD-1`)
-- **`HedgeID`** — empty for same-kind arb (used later for prediction↔crypto hedges)
-- **`Legs`** — typically two:
-  1. Buy on the venue with the lowest ask  
-  2. Sell on the venue with the highest bid  
-- **`Reason`** — human-readable gap note
+- `TraceID` — links both legs for audit (e.g. `arb-BTCUSD-1`)
+- `HedgeID` — empty for same-kind arb (used later for prediction↔crypto hedges)
+- `Legs` — typically two:
+  1. Buy on the venue with the lowest ask
+  2. Sell on the venue with the highest bid
+- `Reason` — human-readable gap note
 
 Strategy never imports vendor SDKs; it only sees HHLD `Book` / `Symbol` / `VenueID`.
 
@@ -73,20 +83,20 @@ Strategy never imports vendor SDKs; it only sees HHLD `Book` / `Symbol` / `Venue
 
 From `configs/default.json` / `config.Config`:
 
-- **`symbols`** — which HHLD symbols to evaluate (scales by list; BTCUSD first)
-- **`trading.size`** — default order size on each leg  
-- **`trading.min_gap`** — minimum raw gap before emitting a Decision  
-- **`venues.a` / `venues.b`** — intended dual venues (wired by the runner)  
-- **`symbol_map.<SYM>.venues`** — HHLD symbol → venue-native id (e.g. BTCUSD → HL `BTC`, GRVT `BTC_USDT_Perp`)  
-- **`symbol_map.<SYM>.order_interval`** — min time between accepted places for that symbol (default `1s`; `0` disables)  
-- **`symbol_map.<SYM>.max_volume_trade`** — max size per leg; effective size = `min(trading.size, max_volume_trade)`  
-- **`risk.budgets.<venue/symbol>`** — process-lifetime notional cap `sum(price×size)` per venue+symbol (missing/`0` = unlimited)  
-- **`risk.fees.<venue>`** — per-exchange fee model (`rate_bps`, `fixed`, `commission_bps`, `commission_fixed`; additive)  
-- **`risk.fee_bps_per_leg`** — default rate when a venue is missing from `fees`  
-- **`risk.*`** — latency penalty, partial-fill factor, max book age, max in-flight  
-- **`timeouts.book` / `timeouts.order`** — budgets used with fake delays and (later) live calls  
+- `venues.a` **/** `venues.b` — intended dual venues (wired by the runner)  
+- `timeouts.book` **/** `timeouts.order` — budgets used with fake delays and (later) live calls  
+- `risk.max_in_flight` — global concurrent Risk+exec pipeline cap  
+- `symbol_map[]` — one row per HHLD symbol (`symbol`, `trading`, `risk`, `venues`)  
+- `symbol_map[].trading.min_size` / `max_size` — size band; Strategy emits `max_size` (floored to `min_size`); Risk rejects legs above `max_size` (`max_volume_exceeded`)  
+- `symbol_map[].trading.min_gap` — minimum raw gap before emitting a Decision  
+- `symbol_map[].trading.order_interval` — min time between accepted places (default `1s`; `0` disables)  
+- `symbol_map[].trading.kind` / `strategy` — instrument kind and strategy name  
+- `symbol_map[].risk` — `fee_bps_per_leg` fallback, latency penalty, partial-fill factor, max book age  
+- `symbol_map[].venues.<venue>.symbol_name` — venue-native id (e.g. BTCUSD → HL `BTC`, GRVT `BTC_USDT_Perp`)  
+- `symbol_map[].venues.<venue>.fees` — per-exchange fee model (`rate_bps`, `fixed`, `commission_bps`, `commission_fixed`; additive)  
+- `symbol_map[].venues.<venue>.budget` — process-lifetime notional cap `sum(price×size)` for that venue+symbol (missing/`0` = unlimited)  
 
-`strategy.ArbConfigFrom(cfg)` maps config → `CrossVenueArb` (clamped sizes). Legacy flat `symbol_map` (`{"hyperliquid":"BTC",...}`) still loads; defaults fill `order_interval` / `max_volume_trade`.
+`strategy.ArbConfigFrom(cfg)` maps each `symbol_map` row → `CrossVenueArb` sizes and min gaps.
 
 ## Risk before place (miss-more)
 
@@ -96,9 +106,9 @@ Even if Strategy sees a gap, Risk may **reject** (miss the opportunity):
 - A required book is missing or **stale**  
 - A leg’s venue is marked **unhealthy**  
 - Same arb key already in flight (`lock_busy`) or global cap hit (`overloaded`)  
-- Leg size above `max_volume_trade` (`max_volume_exceeded`)  
+- Leg size above `trading.max_size` (`max_volume_exceeded`)  
 - Place too soon after last accept for that symbol (`rate_limited`)  
-- Notional spend would exceed `risk.budgets` for a venue+symbol (`budget_exceeded:venue/symbol`)  
+- Notional spend would exceed `venues.<venue>.budget` for a venue+symbol (`budget_exceeded:venue/symbol`)
 
 Caller pattern: `TryAcquire` → `Evaluate` → `PlaceDecision` → `Release`.
 
@@ -108,18 +118,22 @@ Budget and rate limits are charged on **accepted Evaluate** (process lifetime; n
 
 Fee **schedules** are a pre-trade cost model for miss-more gating, not venue I/O:
 
-| Layer | Owns | Example |
-|-------|------|---------|
-| `risk.FeeSchedule` / `config.risk.fees` | Expected / worst-case cost **before** place | HL `rate_bps: 3.5`, GRVT `rate_bps` + `commission_fixed` |
-| `exchange.Fill.Fee` | What was **actually** charged after a fill | Live adapter reports venue fee on the fill |
+
+| Layer                                   | Owns                                        | Example                                                  |
+| --------------------------------------- | ------------------------------------------- | -------------------------------------------------------- |
+| `risk.FeeSchedule` / `symbol_map[].venues.<venue>.fees` | Expected / worst-case cost **before** place | HL `rate_bps: 1`, GRVT `rate_bps` + `commission_fixed` |
+| `exchange.Fill.Fee`                     | What was **actually** charged after a fill  | Live adapter reports venue fee on the fill               |
+
 
 - **Risk** needs those numbers to accept or reject a `Decision` before `PlaceOrder`. Operators may set schedules **more conservative** than advertised venue rates.
 - **Exchange** adapters own market data and order/fill transport. Putting policy schedules on `Exchange` would mix I/O with economic gates; Risk would still consume the same numbers.
 - On paper today, `RecordPaperDecision` stamps the Risk schedule onto fills so PnL matches the gate. Later (live fills), prefer the real `Fill.Fee` from the venue; Risk may still gate on the configured schedule (or a conservative blend). Optional later: adapter `EstimateFee` as an input to Risk — Risk still decides.
 
+
+
 ### Estimation (VaR / winning rate)
 
-Beyond the hard gate, Risk Management exposes an **`Estimator`** abstraction:
+Beyond the hard gate, Risk Management exposes an `Estimator` abstraction:
 
 - Predict **winning rate** and/or **Value at Risk** for a `Decision`
 - Implementations: detective **formulas** / Go sim stats in this repo; **ML in a research side project** that exports artifacts for a Go `Estimator` (`Estimate.Method`)
@@ -133,8 +147,8 @@ Simulation feeds calibration via `sim.Analyzer` (winning rate + distribution). S
 
 `sim.Analyzer` (same abstraction style) can report:
 
-- **`WinningRate`** — empirical P(win) over a run/filter  
-- **`WinningDistribution`** — samples with dims  
+- `WinningRate` — empirical P(win) over a run/filter  
+- `WinningDistribution` — samples with dims
 
 `(symbol, gap, volume1, volume2, exchange1, exchange2, time)`
 
@@ -161,16 +175,18 @@ HL / GRVT / fake  →  market.Bus (BookEvent)  →  BookStore.Apply
                               Risk.TryAcquire → Evaluate → Place → Admin
 ```
 
-| Rule | Behavior |
-|------|----------|
-| **Event kinds** | `Snapshot` (full replace) or `Delta` (merge by price; size `0` deletes a level) |
-| **Delta before snapshot** | Reject for that `(venue,symbol)` until a snapshot establishes the book |
-| **Evaluate trigger** | Every successful apply for either venue (no coalesce window) |
-| **Peer missing** | Miss — do not call `OnBooks` until both configured venues have a book for the symbol |
-| **Strategy API** | Unchanged: still `OnBooks([]Book)` with full books; deltas stay below Strategy |
-| **Risk** | Events must not bypass `TryAcquire` / in-flight caps ([concurrency.md](concurrency.md)) |
-| **HL note** | WS `l2Book` is already a full snapshot each push → publish as Snapshot |
-| **GRVT note** | Prefer `v1.book.d` for deltas; `v1.book.s` as Snapshot; reconnect resets with Snapshot |
+
+| Rule                      | Behavior                                                                                |
+| ------------------------- | --------------------------------------------------------------------------------------- |
+| **Event kinds**           | `Snapshot` (full replace) or `Delta` (merge by price; size `0` deletes a level)         |
+| **Delta before snapshot** | Reject for that `(venue,symbol)` until a snapshot establishes the book                  |
+| **Evaluate trigger**      | Every successful apply for either venue (no coalesce window)                            |
+| **Peer missing**          | Miss — do not call `OnBooks` until both configured venues have a book for the symbol    |
+| **Strategy API**          | Unchanged: still `OnBooks([]Book)` with full books; deltas stay below Strategy          |
+| **Risk**                  | Events must not bypass `TryAcquire` / in-flight caps ([concurrency.md](concurrency.md)) |
+| **HL note**               | WS `l2Book` is already a full snapshot each push → publish as Snapshot                  |
+| **GRVT note**             | Prefer `v1.book.d` for deltas; `v1.book.s` as Snapshot; reconnect resets with Snapshot  |
+
 
 Sim/backtest (P6) still replays book lists through `OnBooks` without requiring the bus.
 
@@ -182,14 +198,18 @@ The **warehouse** is HHLD’s local **backtest tape library**: store normalized 
 Crawl (sample NDJSON / fake / later HL+GRVT)  →  Warehouse (SQLite)  →  sim.InputFromStore  →  sim.Replay  →  PnL / win rate
 ```
 
+
+
 ### Purpose of SQLite (v1)
 
-| Role | Why |
-|------|-----|
-| **Persist crawled data** | Books/ticks land in one normalized store instead of ad-hoc files per run |
-| **Feed P6 backtest** | Query by symbol + time range → `sim.Input` for `Replay.Run` |
-| **Same types as live** | Stored as HHLD `exchange.Book` / `exchange.Tick`, not vendor JSON |
-| **Low cost** | Single `.db` file, no DB server — fits solo-operator / one-instance deploy |
+
+| Role                     | Why                                                                        |
+| ------------------------ | -------------------------------------------------------------------------- |
+| **Persist crawled data** | Books/ticks land in one normalized store instead of ad-hoc files per run   |
+| **Feed P6 backtest**     | Query by symbol + time range → `sim.Input` for `Replay.Run`                |
+| **Same types as live**   | Stored as HHLD `exchange.Book` / `exchange.Tick`, not vendor JSON          |
+| **Low cost**             | Single `.db` file, no DB server — fits solo-operator / one-instance deploy |
+
 
 Load sample data:
 
@@ -205,12 +225,14 @@ Orders and realized PnL from backtests still go through `admin` / `pnl` during r
 
 **JSON is the default for HHLD v1** — human-readable, already used for config, crawl samples, and admin HTTP.
 
-| Format | Use in HHLD | Notes |
-|--------|-------------|-------|
-| **JSON / NDJSON** | Crawl interchange (`data/samples/*.ndjson`), nested bids/asks inside SQLite rows | Easy to inspect, diff, and debug; matches Go `encoding/json` |
-| **SQLite + JSON columns** | Warehouse v1 (`warehouse.SQLite`) | Scalar fields (symbol, time, venue) indexed; book levels as JSON text — fine at P7 scale |
-| **BSON** | Not used today | Fits MongoDB-style document stores or very large binary archives; adds tooling cost without benefit at current volume |
-| **Parquet** | Later, optional | Columnar exports for long historical analytics ([tech-stack.md](tech-stack.md)); not required for core SQLite warehouse |
+
+| Format                    | Use in HHLD                                                                      | Notes                                                                                                                   |
+| ------------------------- | -------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| **JSON / NDJSON**         | Crawl interchange (`data/samples/*.ndjson`), nested bids/asks inside SQLite rows | Easy to inspect, diff, and debug; matches Go `encoding/json`                                                            |
+| **SQLite + JSON columns** | Warehouse v1 (`warehouse.SQLite`)                                                | Scalar fields (symbol, time, venue) indexed; book levels as JSON text — fine at P7 scale                                |
+| **BSON**                  | Not used today                                                                   | Fits MongoDB-style document stores or very large binary archives; adds tooling cost without benefit at current volume   |
+| **Parquet**               | Later, optional                                                                  | Columnar exports for long historical analytics ([tech-stack.md](tech-stack.md)); not required for core SQLite warehouse |
+
 
 Rule of thumb:
 
@@ -218,13 +240,15 @@ Rule of thumb:
 - **BSON** only if you adopt a document DB or hit size/perf limits JSON cannot handle.
 - **Parquet** when exporting large history for external analysis — not the primary v1 store.
 
+
+
 ## Paper place and partial failure
 
 `PlaceDecision` places **all legs concurrently**. If one venue times out and the other accepts:
 
 - Results include per-leg success/error (1-leg failure)  
 - `RecordPaperDecision` still writes both order rows (`accepted` vs `error`)  
-- Only successful legs get PnL fills  
+- Only successful legs get PnL fills
 
 This matches [networking.md](networking.md): unknown/failed legs must be auditable; unpaired exposure is a later recovery playbook (P10), not ignored.
 
@@ -233,9 +257,9 @@ This matches [networking.md](networking.md): unknown/failed legs must be auditab
 For the same symbol, buy then sell inventory-matches:
 
 - Realized ≈ `(sell_price - buy_price) * size - fees`  
-- Fees use the same per-venue schedule as the gate (`risk.FeeSchedule` / `risk.fees` in config): rate (bps), fixed amount, and/or commission — summed per leg  
+- Fees use the same per-venue schedule as the gate (`risk.FeeSchedule` / `symbol_map[].venues.<venue>.fees`): rate (bps), fixed amount, and/or commission — summed per leg  
 - `admin.RecordPaperDecision(..., fees)` writes that fee onto each successful fill  
-- Audit can list orders by `TraceID` and compare to fills on the tracker  
+- Audit can list orders by `TraceID` and compare to fills on the tracker
 
 Unrealized mark-to-market is deferred (`Unrealized` is `"0"` in the memory tracker for now).
 
@@ -243,14 +267,19 @@ Unrealized mark-to-market is deferred (`Unrealized` is `"0"` in the memory track
 
 No polished charts yet (P5 skipped visualization). Operators inspect PnL and orders via:
 
-| URL | Purpose |
-|-----|---------|
-| `GET /trading/pnl` | Realized / unrealized snapshot (HTML) |
-| `GET /trading/pnl?format=json` | Same as JSON |
-| `GET /trading/orders` | Order table; query `trace_id`, `hedge_id`, `venue`, `symbol` |
-| `GET /trading/orders?format=json` | Same as JSON |
-| `GET /trading/market` | Dual books, gap, trade signal, signal config (HTML; polls JSON) |
-| `GET /trading/market?format=json` | Same as JSON; optional `symbol=` |
+
+| URL                               | Purpose                                                         |
+| --------------------------------- | --------------------------------------------------------------- |
+| `GET /trading/pnl`                | Realized / unrealized snapshot (HTML)                           |
+| `GET /trading/pnl?format=json`    | Same as JSON                                                    |
+| `GET /trading/orders`             | Order table; query `trace_id`, `hedge_id`, `venue`, `symbol`    |
+| `GET /trading/orders?format=json` | Same as JSON                                                    |
+| `GET /trading/market`             | Dual books, gap, trade signal, signal config (HTML; polls JSON) |
+| `GET /trading/market?format=json` | Same as JSON; optional `symbol=`                                |
+| `GET /sim`                        | Crawl replay: D3 gap/PnL/signals; hover shows gap formula, venues/sides, size, fees |
+| `GET /sim?format=json`            | Series JSON                                                     |
+| `POST /sim/run`                   | Overlay knobs (venues, min_gap, …) and re-run                   |
+
 
 Run locally:
 
@@ -263,21 +292,26 @@ go run ./cmd/hhld -demo-market
 
 go run ./cmd/hhld -live-market
 # same URL — live Hyperliquid + GRVT books/ticks (paper place via fake)
+
+go run ./cmd/hhld-sim -ndjson data/samples/btcusd_books.ndjson
+# open http://127.0.0.1:8080/sim
 ```
 
-`-demo` seeds one paper arb (`trace_id=demo-arb-1`). `-demo-market` drives fake dual books; `-live-market` uses public HL/GRVT market data so each venue shows real **price** and **size** (plus native instrument / mid). Config on the market page is **read-only** (edit `configs/default.json`). Wire your live `admin.Auditor` into `admin.Handler` for a real session.
+`-demo` seeds one paper arb (`trace_id=demo-arb-1`). `-demo-market` drives fake dual books; `-live-market` uses public HL/GRVT market data so each venue shows real **price** and **size** (plus native instrument / mid). Config on the market page is **read-only** (edit `configs/default.json`). `/sim` tables are **editable in-memory** (Apply re-runs; does not write the file). Wire your live `admin.Auditor` into `admin.Handler` for a real session.
 
 ## What paper arb is not
 
 - Not live capital or real exchange order placement (P8 adapters are **read-only**; orders return `ErrReadOnly`)  
 - Not prediction-market trading or prediction↔crypto hedge (later)  
-- Not full historical warehouse coverage (P7 is minimal SQLite + JSON/NDJSON crawl; Parquet/multi-cloud later) or paper-on-live loop (P9)  
+- Not full historical warehouse coverage (P7 is minimal SQLite + JSON/NDJSON crawl; Parquet/multi-cloud later) or paper-on-live loop (P9)
+
+
 
 ## Minimal mental example
 
-1. Fake HL book: ask `100.1`; fake GRVT book: bid `100.8`; `min_gap = 0.3` → Decision.  
-2. Risk: fees/latency leave positive net edge; books fresh → OK.  
-3. Paper place both legs → two `accepted` acks.  
-4. Admin: two orders under one `TraceID`; PnL realized ≈ gap − modeled fees (e.g. 5 bps/leg on default config).  
+1. Fake HL book: ask `100.1`; fake GRVT book: bid `100.8`; `min_gap = 0.3` → Decision.
+2. Risk: fees/latency leave positive net edge; books fresh → OK.
+3. Paper place both legs → two `accepted` acks.
+4. Admin: two orders under one `TraceID`; PnL realized ≈ gap − modeled fees (e.g. 5 bps/leg on default config).
 
 That loop is the V1 paper-trading path HHLD is built to prove before live gates open.

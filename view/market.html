@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <title>HHLD Market</title>
+  <link rel="stylesheet" href="/view/market.css"/>
+</head>
+<body>
+  <nav>
+    <a href="/trading/pnl">PnL</a> ·
+    <a href="/trading/orders">Orders</a> ·
+    <a href="/trading/market">Market</a> · <a href="/sim">Sim</a> ·
+    <a id="jsonLink" href="/trading/market?format=json">JSON</a>
+  </nav>
+  <h1>Market <span id="symLabel"></span></h1>
+  <p class="sub">As of <span id="asOf">—</span> · poll 300ms · config read-only</p>
+
+  <div class="row">
+    <div class="panel">
+      <h2>Gap</h2>
+      <div id="gapVal" class="gap none">—</div>
+      <p id="gapDetail" class="sub gap-detail"></p>
+    </div>
+    <div class="panel">
+      <h2>Trade signal</h2>
+      <div id="signal" class="signal">—</div>
+    </div>
+  </div>
+
+  <div class="grid books">
+    <div class="panel">
+      <h2 id="venueA">Venue A</h2>
+      <div class="tob" id="tobA"></div>
+      <table class="depth" id="bookA">
+        <thead><tr><th>Price</th><th>Size</th><th></th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <div class="panel">
+      <h2 id="venueB">Venue B</h2>
+      <div class="tob" id="tobB"></div>
+      <table class="depth" id="bookB">
+        <thead><tr><th>Price</th><th>Size</th><th></th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="row">
+    <div class="panel">
+      <h2>Signal config</h2>
+      <dl class="cfg" id="cfg"></dl>
+    </div>
+    <div class="panel">
+      <h2>Recent ticks</h2>
+      <div class="ticks" id="ticks">—</div>
+    </div>
+  </div>
+  <script src="/view/market.js"></script>
+</body>
+</html>

@@ -92,7 +92,7 @@ func (g *Gate) Evaluate(ctx context.Context, d strategy.Decision, mkt MarketView
 	}
 	for _, leg := range d.Legs {
 		if strings.TrimSpace(leg.Price) == "" || strings.TrimSpace(leg.Size) == "" {
-			return Verdict{OK: false, Reason: "missing price or size"}, nil
+			return Verdict{OK: false, Reason: fmt.Sprintf("missing price or size venue=%s price=%q size=%q", leg.Venue, leg.Price, leg.Size)}, nil
 		}
 	}
 	if d.HedgeID != "" && len(d.Legs) < 2 {
@@ -101,14 +101,20 @@ func (g *Gate) Evaluate(ctx context.Context, d strategy.Decision, mkt MarketView
 
 	for _, leg := range d.Legs {
 		if mkt.Unhealthy[leg.Venue] {
-			return Verdict{OK: false, Reason: "venue_unhealthy:" + string(leg.Venue)}, nil
+			return Verdict{OK: false, Reason: "venue_unhealthy venue=" + string(leg.Venue)}, nil
 		}
 	}
 
+	// check if the book is stale
 	now := mkt.Now
 	if now.IsZero() {
 		now = timeNow()
 	}
+
+	// explain the book is stale: if the book is stale, the book is not valid for the decision
+	// the book is stale if the book is not updated within the last MaxBookAge
+	// the book is not updated if the book is not updated within the last MaxBookAge
+	// the book is not updated if the book is not updated within the last MaxBookAge
 	if g.params.MaxBookAge > 0 && len(mkt.Books) > 0 {
 		needed := map[exchange.VenueID]exchange.Symbol{}
 		for _, leg := range d.Legs {
@@ -117,16 +123,26 @@ func (g *Gate) Evaluate(ctx context.Context, d strategy.Decision, mkt MarketView
 		for venue, sym := range needed {
 			book, ok := findBook(mkt.Books, venue, sym)
 			if !ok {
-				return Verdict{OK: false, Reason: "missing_book:" + string(venue)}, nil
+				return Verdict{OK: false, Reason: fmt.Sprintf("missing_book venue=%s symbol=%s", venue, sym)}, nil
 			}
-			if book.Time.IsZero() || now.Sub(book.Time) > g.params.MaxBookAge {
-				return Verdict{OK: false, Reason: "stale_book:" + string(venue)}, nil
+
+			gap_time := now.Sub(book.Time)
+			if book.Time.IsZero() || gap_time > g.params.MaxBookAge {
+				ms := gap_time.Milliseconds()
+				return Verdict{OK: false, Reason: fmt.Sprintf(
+					"stale_book venue=%s gap_time=%s max_book_age=%s",
+					venue, gap_time.Truncate(time.Millisecond), g.params.MaxBookAge,
+				), Info: map[string]interface{}{
+					"gap_time":     ms,
+					"venue":        string(venue),
+					"max_book_age": g.params.MaxBookAge.String(),
+				}}, nil
 			}
 		}
 	}
 
-	if ok, reason := g.edgeSurvives(d); !ok {
-		return Verdict{OK: false, Reason: reason}, nil
+	if ok, reason, info := g.edgeSurvives(d); !ok {
+		return Verdict{OK: false, Reason: reason, Info: info}, nil
 	}
 	if ok, reason := g.checkLimits(d, now); !ok {
 		return Verdict{OK: false, Reason: reason}, nil
@@ -143,10 +159,10 @@ func (g *Gate) checkLimits(d strategy.Decision, now time.Time) (bool, string) {
 	for _, leg := range d.Legs {
 		sz, err := strconv.ParseFloat(leg.Size, 64)
 		if err != nil || sz <= 0 {
-			return false, "bad size"
+			return false, fmt.Sprintf("bad size venue=%s size=%q", leg.Venue, leg.Size)
 		}
 		if max, ok := g.params.MaxVolumeTrade[leg.Symbol]; ok && max > 0 && sz > max+1e-12 {
-			return false, "max_volume_exceeded"
+			return false, fmt.Sprintf("max_volume_exceeded symbol=%s size=%g max=%g", leg.Symbol, sz, max)
 		}
 	}
 
@@ -160,7 +176,7 @@ func (g *Gate) checkLimits(d strategy.Decision, now time.Time) (bool, string) {
 			continue
 		}
 		if last, seen := g.lastPlace[sym]; seen && now.Sub(last) < interval {
-			return false, "rate_limited"
+			return false, fmt.Sprintf("rate_limited symbol=%s elapsed=%s interval=%s", sym, now.Sub(last).Truncate(time.Millisecond), interval)
 		}
 	}
 
@@ -172,17 +188,17 @@ func (g *Gate) checkLimits(d strategy.Decision, now time.Time) (bool, string) {
 	for _, leg := range d.Legs {
 		px, err := strconv.ParseFloat(leg.Price, 64)
 		if err != nil {
-			return false, "bad price"
+			return false, fmt.Sprintf("bad price venue=%s price=%q", leg.Venue, leg.Price)
 		}
 		sz, err := strconv.ParseFloat(leg.Size, 64)
 		if err != nil {
-			return false, "bad size"
+			return false, fmt.Sprintf("bad size venue=%s size=%q", leg.Venue, leg.Size)
 		}
 		key := config.BudgetKey(leg.Venue, leg.Symbol)
 		notional := px * sz
 		if budget, ok := g.params.Budgets[key]; ok && budget > 0 {
 			if g.spent[key]+notional > budget+1e-9 {
-				return false, "budget_exceeded:" + key
+				return false, fmt.Sprintf("budget_exceeded key=%s spent=%g add=%g budget=%g", key, g.spent[key], notional, budget)
 			}
 		}
 		adds = append(adds, add{key: key, n: notional})
@@ -197,10 +213,10 @@ func (g *Gate) checkLimits(d strategy.Decision, now time.Time) (bool, string) {
 	return true, "ok"
 }
 
-func (g *Gate) edgeSurvives(d strategy.Decision) (bool, string) {
+func (g *Gate) edgeSurvives(d strategy.Decision) (ok bool, reason string, info map[string]interface{}) {
 	if len(d.Legs) < 2 {
 		// Single-leg: only fee/size sanity; no cross-edge model yet.
-		return true, "ok"
+		return true, "ok", nil
 	}
 	var buy, sell *strategy.Leg
 	for i := range d.Legs {
@@ -217,23 +233,23 @@ func (g *Gate) edgeSurvives(d strategy.Decision) (bool, string) {
 		}
 	}
 	if buy == nil || sell == nil {
-		return false, "need buy and sell legs"
+		return false, "need buy and sell legs", nil
 	}
 	buyPx, err := strconv.ParseFloat(buy.Price, 64)
 	if err != nil {
-		return false, "bad buy price"
+		return false, fmt.Sprintf("bad buy price venue=%s price=%q", buy.Venue, buy.Price), nil
 	}
 	sellPx, err := strconv.ParseFloat(sell.Price, 64)
 	if err != nil {
-		return false, "bad sell price"
+		return false, fmt.Sprintf("bad sell price venue=%s price=%q", sell.Venue, sell.Price), nil
 	}
 	size, err := strconv.ParseFloat(buy.Size, 64)
 	if err != nil || size <= 0 {
-		return false, "bad size"
+		return false, fmt.Sprintf("bad size venue=%s size=%q", buy.Venue, buy.Size), nil
 	}
 	sellSize, err := strconv.ParseFloat(sell.Size, 64)
 	if err != nil || sellSize <= 0 {
-		return false, "bad size"
+		return false, fmt.Sprintf("bad size venue=%s size=%q", sell.Venue, sell.Size), nil
 	}
 	if sellSize < size {
 		size = sellSize
@@ -245,9 +261,23 @@ func (g *Gate) edgeSurvives(d strategy.Decision) (bool, string) {
 	fee := fees.Cost(buy.Venue, buyPx, size) + fees.Cost(sell.Venue, sellPx, size)
 	net := gross - fee - g.params.LatencyPenalty*size
 	if net <= 0 {
-		return false, fmt.Sprintf("negative_edge net=%.6f", net)
+		lat := g.params.LatencyPenalty * size
+		return false, fmt.Sprintf(
+				"negative_edge net=%.6f buy=%s@%s sell=%s@%s size=%.6g gross=%.6f fee=%.6f latency=%.6f",
+				net, buy.Venue, buy.Price, sell.Venue, sell.Price, size, gross, fee, lat,
+			), map[string]interface{}{
+				"net":        net,
+				"gross":      gross,
+				"fee":        fee,
+				"latency":    lat,
+				"size":       size,
+				"buy_venue":  string(buy.Venue),
+				"sell_venue": string(sell.Venue),
+				"buy_price":  buy.Price,
+				"sell_price": sell.Price,
+			}
 	}
-	return true, "ok"
+	return true, "ok", nil
 }
 
 // Params returns a copy of the gate parameters (including fee schedule for paper fills).

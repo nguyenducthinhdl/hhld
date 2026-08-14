@@ -35,7 +35,7 @@ type LiveConfig struct {
 	// Duration run length (0 or empty = until SIGINT).
 	Duration string `json:"duration,omitempty"`
 	Kind     exchange.Kind `json:"kind,omitempty"`
-	SymbolMap map[string]config.SymbolEntry `json:"symbol_map,omitempty"`
+	SymbolMap []config.SymbolEntry `json:"symbol_map,omitempty"`
 	Feeds    []FeedConfig `json:"feeds"`
 }
 
@@ -64,7 +64,10 @@ func LoadLiveConfig(path string) (LiveConfig, error) {
 			return LiveConfig{}, err
 		}
 		if cfg.Kind == "" {
-			cfg.Kind = app.Trading.Kind
+			syms := app.Symbols()
+			if len(syms) > 0 {
+				cfg.Kind = app.KindFor(syms[0])
+			}
 		}
 		if len(cfg.SymbolMap) == 0 {
 			cfg.SymbolMap = app.SymbolMap
@@ -140,15 +143,17 @@ func (f FeedConfig) interval(defaultDur time.Duration) time.Duration {
 
 // NativeSymbol resolves venue-native instrument id from symbol_map.
 func (c LiveConfig) NativeSymbol(venue exchange.VenueID, symbol exchange.Symbol) (string, error) {
-	entry, ok := c.SymbolMap[string(symbol)]
-	if !ok || entry.Venues == nil {
-		return "", fmt.Errorf("crawl: no symbol_map for %s", symbol)
+	for _, entry := range c.SymbolMap {
+		if entry.Symbol != symbol {
+			continue
+		}
+		spec, ok := entry.Venues[string(venue)]
+		if !ok || spec.SymbolName == "" {
+			return "", fmt.Errorf("crawl: no symbol_map[%s].venues[%s]", symbol, venue)
+		}
+		return spec.SymbolName, nil
 	}
-	native, ok := entry.Venues[string(venue)]
-	if !ok || native == "" {
-		return "", fmt.Errorf("crawl: no symbol_map[%s][%s]", symbol, venue)
-	}
-	return native, nil
+	return "", fmt.Errorf("crawl: no symbol_map for %s", symbol)
 }
 
 func (c LiveConfig) kind() exchange.Kind {

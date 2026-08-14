@@ -88,7 +88,7 @@ wscat -c "wss://trades.grvt.io/ws/full" \
 |---------------|---------------------------|
 | `BTCUSD` | `BTC_USDT_Perp` |
 
-Config: `symbol_map.<SYM>.venues.grvt`. Adapter: `Config.Symbols[symbol] → instrument`.
+Config: `symbol_map[].venues.grvt.symbol_name`. Adapter: `Config.Symbols[symbol] → instrument`.
 
 ## Adapter knobs
 

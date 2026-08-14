@@ -15,28 +15,45 @@ func TestDefault_Validate(t *testing.T) {
 	if err := cfg.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	if len(cfg.Symbols) != 1 || cfg.Symbols[0] != "BTCUSD" {
-		t.Fatalf("symbols: %+v", cfg.Symbols)
+	syms := cfg.Symbols()
+	if len(syms) != 1 || syms[0] != "BTCUSD" {
+		t.Fatalf("symbols: %+v", syms)
 	}
 }
 
 func TestParseJSON_OverridesAndMultiSymbol(t *testing.T) {
 	raw := []byte(`{
-  "symbols": ["BTCUSD", "ETHUSD"],
-  "trading": {
-    "strategy": "cross-venue-arb",
-    "size": "0.5",
-    "min_gap": 0.5,
-    "kind": "perp"
-  },
   "venues": { "a": "hyperliquid", "b": "grvt" },
-  "timeouts": { "book": "30ms", "order": "40ms" }
+  "timeouts": { "book": "30ms", "order": "40ms" },
+  "risk": { "max_in_flight": 4 },
+  "symbol_map": [
+    {
+      "symbol": "BTCUSD",
+      "trading": { "strategy": "cross-venue-arb", "kind": "perp", "min_size": "0.01", "max_size": "0.5", "min_gap": 0.5, "order_interval": "1s" },
+      "risk": { "fee_bps_per_leg": 5, "latency_penalty": 0.05, "partial_fill_factor": 0.95, "max_book_age": "2s" },
+      "venues": {
+        "hyperliquid": { "symbol_name": "BTC", "fees": { "rate_bps": 1 }, "budget": "10000" },
+        "grvt": { "symbol_name": "BTC_USDT_Perp", "fees": { "rate_bps": 2 }, "budget": "10000" }
+      }
+    },
+    {
+      "symbol": "ETHUSD",
+      "trading": { "strategy": "cross-venue-arb", "kind": "perp", "min_size": "0.01", "max_size": "0.5", "min_gap": 0.5, "order_interval": "1s" },
+      "risk": { "fee_bps_per_leg": 5, "latency_penalty": 0.05, "partial_fill_factor": 0.95, "max_book_age": "2s" },
+      "venues": {
+        "hyperliquid": { "symbol_name": "ETH", "fees": { "rate_bps": 1 }, "budget": "5000" },
+        "grvt": { "symbol_name": "ETH_USDT_Perp", "fees": { "rate_bps": 2 }, "budget": "5000" }
+      }
+    }
+  ]
 }`)
 	cfg, err := config.ParseJSON(raw)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(cfg.Symbols) != 2 || cfg.Trading.Size != "0.5" || cfg.Trading.MinGap != 0.5 {
+	syms := cfg.Symbols()
+	entry, ok := cfg.Lookup("BTCUSD")
+	if !ok || len(syms) != 2 || entry.Trading.MaxSize != "0.5" || entry.Trading.MinGap != 0.5 {
 		t.Fatalf("cfg: %+v", cfg)
 	}
 	if cfg.Timeouts.Book.Duration() != 30*time.Millisecond {
@@ -60,10 +77,18 @@ func TestLoadJSON_FromFile(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "hhld.json")
 	body := `{
-  "symbols": ["BTCUSD"],
-  "trading": { "strategy": "cross-venue-arb", "size": "1", "min_gap": 0.3, "kind": "perp" },
   "venues": { "a": "hyperliquid", "b": "grvt" },
-  "timeouts": { "book": "25ms", "order": "25ms" }
+  "timeouts": { "book": "25ms", "order": "25ms" },
+  "risk": { "max_in_flight": 4 },
+  "symbol_map": [{
+    "symbol": "BTCUSD",
+    "trading": { "strategy": "cross-venue-arb", "min_size": "0.01", "max_size": "1", "min_gap": 0.3, "kind": "perp" },
+    "risk": { "fee_bps_per_leg": 5, "partial_fill_factor": 0.95, "max_book_age": "2s" },
+    "venues": {
+      "hyperliquid": { "symbol_name": "BTC", "fees": { "rate_bps": 1 }, "budget": "10000" },
+      "grvt": { "symbol_name": "BTC_USDT_Perp", "fees": { "rate_bps": 2 }, "budget": "10000" }
+    }
+  }]
 }`
 	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
 		t.Fatal(err)
@@ -74,6 +99,20 @@ func TestLoadJSON_FromFile(t *testing.T) {
 	}
 	if err := cfg.Validate(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestLoadJSON_RepoDefault(t *testing.T) {
+	cfg, err := config.LoadJSON("../../configs/default.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.EffectiveSize("BTCUSD") != "0.00003" {
+		t.Fatalf("effective size: %q", cfg.EffectiveSize("BTCUSD"))
+	}
+	hl, err := cfg.NativeSymbol("hyperliquid", "BTCUSD")
+	if err != nil || hl != "BTC" {
+		t.Fatalf("native: %q %v", hl, err)
 	}
 }
 

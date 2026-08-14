@@ -69,7 +69,7 @@ printf '%s\n' '{"method":"subscribe","subscription":{"type":"l2Book","coin":"BTC
 
 ## Symbol map
 
-HHLD symbols never appear on the wire. Config `symbol_map.<SYM>.venues.hyperliquid` is the HL **coin** (perp name from `meta`).
+HHLD symbols never appear on the wire. Config `symbol_map[].venues.hyperliquid.symbol_name` is the HL **coin** (perp name from `meta`).
 
 | HHLD `Symbol` | HL coin (example) |
 |---------------|-------------------|

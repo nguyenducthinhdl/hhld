@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <title>HHLD Orders</title>
+  <link rel="stylesheet" href="/view/orders.css"/>
+</head>
+<body>
+  <nav><a href="/trading/pnl">PnL</a> · <a href="/trading/orders">Orders</a> · <a href="/trading/market">Market</a> · <a href="/sim">Sim</a> · <a href="/trading/orders?format=json">JSON</a></nav>
+  <h1>Orders ({{.Count}})</h1>
+  <p class="filter">Filter via query: trace_id, hedge_id, venue, symbol</p>
+  <table>
+    <thead>
+      <tr>
+        <th>Time</th><th>Trace</th><th>Venue</th><th>Symbol</th><th>Side</th>
+        <th>Price</th><th>Size</th><th>Status</th><th>Order ID</th>
+      </tr>
+    </thead>
+    <tbody>
+      {{range .Orders}}
+      <tr>
+        <td>{{.Time.UTC.Format "15:04:05"}}</td>
+        <td>{{.TraceID}}</td>
+        <td>{{.Venue}}</td>
+        <td>{{.Symbol}}</td>
+        <td>{{.Side}}</td>
+        <td>{{.Price}}</td>
+        <td>{{.Size}}</td>
+        <td class="{{.Status}}">{{.Status}}</td>
+        <td>{{.OrderID}}</td>
+      </tr>
+      {{else}}
+      <tr><td colspan="9">No orders yet</td></tr>
+      {{end}}
+    </tbody>
+  </table>
+</body>
+</html>

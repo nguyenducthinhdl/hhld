@@ -1,6 +1,7 @@
 package admin_test
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -13,6 +14,7 @@ import (
 	"github.com/nguyenducthinhdl/hhld/src/exchange"
 	"github.com/nguyenducthinhdl/hhld/src/market"
 	"github.com/nguyenducthinhdl/hhld/src/pnl"
+	"github.com/nguyenducthinhdl/hhld/src/sim"
 	"github.com/nguyenducthinhdl/hhld/src/viz"
 )
 
@@ -133,5 +135,67 @@ func TestHandler_TradingMarketJSON(t *testing.T) {
 	}
 	if !strings.Contains(body, `"latency_ms"`) {
 		t.Fatalf("missing latency: %s", body)
+	}
+}
+
+func TestHandler_SimJSONAndRun(t *testing.T) {
+	in, err := sim.InputFromNDJSON("../../data/samples/btcusd_books.ndjson", "BTCUSD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Default()
+	cfg.UpdateSymbol("BTCUSD", func(e *config.SymbolEntry) {
+		e.Risk.MaxBookAge = config.Duration(24 * time.Hour)
+		e.Trading.MinSize = "0.01"
+		e.Trading.MaxSize = "1"
+	})
+	mux := http.NewServeMux()
+	admin.Handler{
+		Auditor: admin.NewMemory(nil),
+		SimGet: func() any {
+			s, err := sim.Trace(context.Background(), in, cfg)
+			if err != nil {
+				t.Fatal(err)
+			}
+			return s
+		},
+		SimRun: func(body []byte) (any, error) {
+			var o sim.Overlay
+			if err := json.Unmarshal(body, &o); err != nil {
+				return nil, err
+			}
+			return sim.Trace(context.Background(), in, sim.ApplyOverlay(cfg, o))
+		},
+	}.Register(mux)
+
+	req := httptest.NewRequest(http.MethodGet, "/sim?format=json", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"venues_in_file"`) || !strings.Contains(rec.Body.String(), `"steps"`) {
+		t.Fatalf("missing series: %s", rec.Body.String())
+	}
+
+	high := `{"min_gap":10}`
+	req2 := httptest.NewRequest(http.MethodPost, "/sim/run", strings.NewReader(high))
+	rec2 := httptest.NewRecorder()
+	mux.ServeHTTP(rec2, req2)
+	if rec2.Code != http.StatusOK {
+		t.Fatalf("run status %d %s", rec2.Code, rec2.Body.String())
+	}
+
+	reqHTML := httptest.NewRequest(http.MethodGet, "/sim", nil)
+	recHTML := httptest.NewRecorder()
+	mux.ServeHTTP(recHTML, reqHTML)
+	if recHTML.Code != http.StatusOK || !strings.Contains(recHTML.Body.String(), "/view/sim.css") || !strings.Contains(recHTML.Body.String(), "id=\"sigMiss\"") {
+		t.Fatalf("sim html: %d %s", recHTML.Code, recHTML.Body.String())
+	}
+	reqCSS := httptest.NewRequest(http.MethodGet, "/view/sim.css", nil)
+	recCSS := httptest.NewRecorder()
+	mux.ServeHTTP(recCSS, reqCSS)
+	if recCSS.Code != http.StatusOK || !strings.Contains(recCSS.Body.String(), "#chart") {
+		t.Fatalf("sim css: %d %s", recCSS.Code, recCSS.Body.String())
 	}
 }

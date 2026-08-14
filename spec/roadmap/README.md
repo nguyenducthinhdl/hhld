@@ -13,6 +13,7 @@ Track delivery of each phase from the constitution [roadmap](../roadmap.md).
 | [P4](p4.md) | Risk gates | done |
 | [P5](p5.md) | PnL and admin audit | done |
 | [P6](p6.md) | Backtest simulation | done |
+| [P6.5](p65.md) | Crawl replay visualization | done |
 | [P7](p7.md) | Crawl and warehouse | done |
 | [P8](p8.md) | HL + GRVT read adapters | done |
 | [P8.5](p85.md) | Event-driven BookStore | done |

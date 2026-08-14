@@ -26,19 +26,19 @@ type Snapshot struct {
 
 // BookView is top-of-book depth for one venue.
 type BookView struct {
-	Venue        string      `json:"venue"`
-	NativeSymbol string      `json:"native_symbol,omitempty"`
-	Ready        bool        `json:"ready"`
-	BestBid      string      `json:"best_bid,omitempty"`
-	BestBidSize  string      `json:"best_bid_size,omitempty"`
-	BestAsk      string      `json:"best_ask,omitempty"`
-	BestAskSize  string      `json:"best_ask_size,omitempty"`
-	Mid          string      `json:"mid,omitempty"`
-	Bids         []LevelView `json:"bids,omitempty"`
-	Asks         []LevelView `json:"asks,omitempty"`
-	Time         time.Time   `json:"time,omitempty"`
-	LatencyMs     int64 `json:"latency_ms"`      // ms since last local book update
-	ExchangeAgeMs int64 `json:"exchange_age_ms"` // ms since exchange book time (0 if unknown)
+	Venue         string      `json:"venue"`
+	NativeSymbol  string      `json:"native_symbol,omitempty"`
+	Ready         bool        `json:"ready"`
+	BestBid       string      `json:"best_bid,omitempty"`
+	BestBidSize   string      `json:"best_bid_size,omitempty"`
+	BestAsk       string      `json:"best_ask,omitempty"`
+	BestAskSize   string      `json:"best_ask_size,omitempty"`
+	Mid           string      `json:"mid,omitempty"`
+	Bids          []LevelView `json:"bids,omitempty"`
+	Asks          []LevelView `json:"asks,omitempty"`
+	Time          time.Time   `json:"time,omitempty"`
+	LatencyMs     int64       `json:"latency_ms"`      // ms since last local book update
+	ExchangeAgeMs int64       `json:"exchange_age_ms"` // ms since exchange book time (0 if unknown)
 }
 
 // LevelView is one book level for display.
@@ -49,13 +49,13 @@ type LevelView struct {
 
 // GapView is the cross-venue arb gap (display-only).
 type GapView struct {
-	Ready    bool    `json:"ready"`
-	Value    float64 `json:"value"`
-	BuyVenue string  `json:"buy_venue,omitempty"`
-	BuyAsk   string  `json:"buy_ask,omitempty"`
-	SellVenue string `json:"sell_venue,omitempty"`
-	SellBid  string  `json:"sell_bid,omitempty"`
-	AboveMin bool    `json:"above_min_gap"`
+	Ready     bool    `json:"ready"`
+	Value     float64 `json:"value"`
+	BuyVenue  string  `json:"buy_venue,omitempty"`
+	BuyAsk    string  `json:"buy_ask,omitempty"`
+	SellVenue string  `json:"sell_venue,omitempty"`
+	SellBid   string  `json:"sell_bid,omitempty"`
+	AboveMin  bool    `json:"above_min_gap"`
 }
 
 // SignalView is the last Decision or miss.
@@ -66,14 +66,20 @@ type SignalView struct {
 	GrossGap  float64   `json:"gross_gap,omitempty"`
 	CheckedAt time.Time `json:"checked_at"`
 	Legs      []LegView `json:"legs,omitempty"`
+	// GapTime is book age in milliseconds when Reason is stale_book.
+	GapTime   int64   `json:"gap_time,omitempty"`
+	Net       float64 `json:"net,omitempty"`
+	Venue     string  `json:"venue,omitempty"`
+	BuyVenue  string  `json:"buy_venue,omitempty"`
+	SellVenue string  `json:"sell_venue,omitempty"`
 }
 
 // LegView is one decision leg for the UI.
 type LegView struct {
-	Venue  string `json:"venue"`
-	Side   string `json:"side"`
-	Price  string `json:"price"`
-	Size   string `json:"size"`
+	Venue string `json:"venue"`
+	Side  string `json:"side"`
+	Price string `json:"price"`
+	Size  string `json:"size"`
 }
 
 // TickView is a recent trade tick.
@@ -97,9 +103,9 @@ type FeeView struct {
 type ConfigView struct {
 	VenueA            string             `json:"venue_a"`
 	VenueB            string             `json:"venue_b"`
-	Size              string             `json:"size"`
+	MinSize           string             `json:"min_size"`
+	MaxSize           string             `json:"max_size"`
 	EffectiveSize     string             `json:"effective_size"`
-	MaxVolumeTrade    string             `json:"max_volume_trade"`
 	MinGap            float64            `json:"min_gap"`
 	OrderInterval     string             `json:"order_interval"`
 	FeeBpsPerLeg      float64            `json:"fee_bps_per_leg"`
@@ -113,17 +119,19 @@ type ConfigView struct {
 
 // Source gathers live state for Snapshot.
 type Source struct {
-	Cfg    config.Config
-	Store  *market.BookStore
-	Depth  int
+	Cfg     config.Config
+	Store   *market.BookStore
+	Depth   int
 	Signals *SignalLog
 	Ticks   *TickRing
 }
 
 // BuildSnapshot builds a dashboard snapshot for symbol.
 func (s Source) BuildSnapshot(symbol exchange.Symbol) Snapshot {
-	if symbol == "" && len(s.Cfg.Symbols) > 0 {
-		symbol = s.Cfg.Symbols[0]
+	if symbol == "" {
+		if syms := s.Cfg.Symbols(); len(syms) > 0 {
+			symbol = syms[0]
+		}
 	}
 	depth := s.Depth
 	if depth <= 0 {
@@ -139,7 +147,7 @@ func (s Source) BuildSnapshot(symbol exchange.Symbol) Snapshot {
 		VenueB: bookView(s.Store, s.Cfg, vb, symbol, depth, now),
 		Config: ConfigFrom(s.Cfg, symbol),
 	}
-	out.Gap = ComputeGap(out.VenueA, out.VenueB, s.Cfg.Trading.MinGap)
+	out.Gap = ComputeGap(out.VenueA, out.VenueB, s.Cfg.MinGapFor(symbol))
 	if s.Signals != nil {
 		if sig, ok := s.Signals.Latest(symbol); ok {
 			cp := sig
@@ -245,39 +253,52 @@ func ComputeGap(a, b BookView, minGap float64) *GapView {
 
 // ConfigFrom projects config knobs for the dashboard (no secrets).
 func ConfigFrom(cfg config.Config, symbol exchange.Symbol) ConfigView {
-	maxVol := ""
-	if entry, ok := cfg.SymbolMap[string(symbol)]; ok {
-		maxVol = entry.MaxVolumeTrade
+	entry, ok := cfg.Lookup(symbol)
+	if !ok && len(cfg.SymbolMap) > 0 {
+		entry = cfg.SymbolMap[0]
+		ok = true
 	}
-	interval := cfg.OrderIntervalFor(symbol)
+	interval := cfg.OrderIntervalFor(entry.Symbol)
 	intervalStr := ""
 	if interval > 0 {
 		intervalStr = interval.String()
 	}
-	fees := make(map[string]FeeView, len(cfg.Risk.Fees))
-	for venue, f := range cfg.Risk.Fees {
-		fees[venue] = FeeView{
-			RateBps: f.RateBps, Fixed: f.Fixed,
-			CommissionBps: f.CommissionBps, CommissionFixed: f.CommissionFixed,
+	fees := map[string]FeeView{}
+	budgets := map[string]string{}
+	if ok {
+		for venue, spec := range entry.Venues {
+			fees[venue] = FeeView{
+				RateBps: spec.Fees.RateBps, Fixed: spec.Fees.Fixed,
+				CommissionBps: spec.Fees.CommissionBps, CommissionFixed: spec.Fees.CommissionFixed,
+			}
+			if spec.Budget != "" {
+				budgets[config.BudgetKey(exchange.VenueID(venue), entry.Symbol)] = spec.Budget
+			}
 		}
 	}
-	budgets := map[string]string{}
-	for k, v := range cfg.Risk.Budgets {
-		budgets[k] = v
+	minSize, maxSize, minGap, feeBps, lat, pff, maxAge := "", "", 0.0, 0.0, 0.0, 0.0, ""
+	if ok {
+		minSize = entry.Trading.MinSize
+		maxSize = entry.Trading.MaxSize
+		minGap = entry.Trading.MinGap
+		feeBps = entry.Risk.FeeBpsPerLeg
+		lat = entry.Risk.LatencyPenalty
+		pff = entry.Risk.PartialFillFactor
+		maxAge = entry.Risk.MaxBookAge.Duration().String()
 	}
 	return ConfigView{
 		VenueA:            string(cfg.Venues.A),
 		VenueB:            string(cfg.Venues.B),
-		Size:              cfg.Trading.Size,
-		EffectiveSize:     cfg.EffectiveSize(symbol),
-		MaxVolumeTrade:    maxVol,
-		MinGap:            cfg.Trading.MinGap,
+		MinSize:           minSize,
+		MaxSize:           maxSize,
+		EffectiveSize:     cfg.EffectiveSize(entry.Symbol),
+		MinGap:            minGap,
 		OrderInterval:     intervalStr,
-		FeeBpsPerLeg:      cfg.Risk.FeeBpsPerLeg,
+		FeeBpsPerLeg:      feeBps,
 		FeesByVenue:       fees,
-		LatencyPenalty:    cfg.Risk.LatencyPenalty,
-		PartialFillFactor: cfg.Risk.PartialFillFactor,
-		MaxBookAge:        cfg.Risk.MaxBookAge.Duration().String(),
+		LatencyPenalty:    lat,
+		PartialFillFactor: pff,
+		MaxBookAge:        maxAge,
 		MaxInFlight:       cfg.Risk.MaxInFlight,
 		Budgets:           budgets,
 	}
@@ -285,7 +306,7 @@ func ConfigFrom(cfg config.Config, symbol exchange.Symbol) ConfigView {
 
 // SignalLog keeps the latest signal per symbol (implements market.SignalNotifier).
 type SignalLog struct {
-	mu   sync.RWMutex
+	mu    sync.RWMutex
 	bySym map[exchange.Symbol]SignalView
 }
 
@@ -311,13 +332,48 @@ func (l *SignalLog) NotifyDecision(sym exchange.Symbol, d strategy.Decision, gro
 	}
 }
 
-// NotifyMiss records a risk/peer miss reason.
-func (l *SignalLog) NotifyMiss(sym exchange.Symbol, reason string) {
+// NotifyMiss records a risk/peer miss reason. info may include gap_time (ms) for stale_book.
+func (l *SignalLog) NotifyMiss(sym exchange.Symbol, reason string, info map[string]any) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.bySym[sym] = SignalView{
 		Kind: "miss", Reason: reason, CheckedAt: time.Now().UTC(),
+		GapTime:   gapTimeMS(info),
+		Net:       floatInfo(info, "net"),
+		Venue:     stringInfo(info, "venue"),
+		BuyVenue:  stringInfo(info, "buy_venue"),
+		SellVenue: stringInfo(info, "sell_venue"),
 	}
+}
+
+func gapTimeMS(info map[string]any) int64 {
+	return int64(floatInfo(info, "gap_time"))
+}
+
+func floatInfo(info map[string]any, key string) float64 {
+	if info == nil {
+		return 0
+	}
+	switch n := info[key].(type) {
+	case float64:
+		return n
+	case float32:
+		return float64(n)
+	case int64:
+		return float64(n)
+	case int:
+		return float64(n)
+	default:
+		return 0
+	}
+}
+
+func stringInfo(info map[string]any, key string) string {
+	if info == nil {
+		return ""
+	}
+	s, _ := info[key].(string)
+	return s
 }
 
 // Latest returns the last signal for symbol.

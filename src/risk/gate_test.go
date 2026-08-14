@@ -69,8 +69,14 @@ func TestGate_RejectsNegativeEdge(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v.OK || v.Reason == "" {
+	if v.OK || !strings.Contains(v.Reason, "negative_edge") {
 		t.Fatalf("want negative_edge reject, got %+v", v)
+	}
+	if !strings.Contains(v.Reason, "net=") || !strings.Contains(v.Reason, "buy=") {
+		t.Fatalf("want negative_edge detail, got %q", v.Reason)
+	}
+	if v.FloatInfo("net") >= 0 {
+		t.Fatalf("want negative net in Info, got %+v", v)
 	}
 }
 
@@ -89,6 +95,15 @@ func TestGate_RejectsStaleBook(t *testing.T) {
 	}
 	if v.OK || !strings.Contains(v.Reason, "stale_book") {
 		t.Fatalf("want stale_book, got %+v", v)
+	}
+	if !strings.Contains(v.Reason, "gap_time=") || !strings.Contains(v.Reason, "venue=") {
+		t.Fatalf("want stale_book detail, got %q", v.Reason)
+	}
+	if v.GapTimeMS() != 5000 {
+		t.Fatalf("want gap_time 5000ms, got %d info=%v", v.GapTimeMS(), v.Info)
+	}
+	if v.StringInfo("venue") == "" {
+		t.Fatalf("want stale venue, got %+v", v)
 	}
 }
 
@@ -209,7 +224,7 @@ func TestGate_RateLimited(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v2.OK || v2.Reason != "rate_limited" {
+	if v2.OK || !strings.Contains(v2.Reason, "rate_limited") {
 		t.Fatalf("want rate_limited, got %+v", v2)
 	}
 	v3, err := g.Evaluate(context.Background(), sampleArbDecision(), risk.MarketView{
@@ -239,7 +254,7 @@ func TestGate_BudgetExceeded(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v2.OK || !strings.Contains(v2.Reason, "budget_exceeded:hyperliquid/BTCUSD") {
+	if v2.OK || !strings.Contains(v2.Reason, "budget_exceeded") || !strings.Contains(v2.Reason, "hyperliquid/BTCUSD") {
 		t.Fatalf("want budget_exceeded, got %+v", v2)
 	}
 }
@@ -256,7 +271,7 @@ func TestGate_MaxVolumeExceeded(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v.OK || v.Reason != "max_volume_exceeded" {
+	if v.OK || !strings.Contains(v.Reason, "max_volume_exceeded") {
 		t.Fatalf("want max_volume_exceeded, got %+v", v)
 	}
 }
@@ -270,7 +285,7 @@ func TestParamsFromConfig_BudgetsAndIntervals(t *testing.T) {
 	if p.OrderInterval["BTCUSD"] != time.Second {
 		t.Fatalf("interval: %+v", p.OrderInterval)
 	}
-	if p.MaxVolumeTrade["BTCUSD"] != 1 {
+	if p.MaxVolumeTrade["BTCUSD"] != 0.00003 {
 		t.Fatalf("max vol: %+v", p.MaxVolumeTrade)
 	}
 }

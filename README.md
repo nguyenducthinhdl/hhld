@@ -13,12 +13,13 @@ Go module `github.com/nguyenducthinhdl/hhld`. Packages under [`src/`](src/) (P0 
 | [`src/strategy`](src/strategy/) | Trading decisions (arb, hedge, …) |
 | [`src/risk`](src/risk/) | Risk Management: miss-more gates + VaR/win-rate estimators |
 | [`src/pnl`](src/pnl/) | Profit and loss |
-| [`src/sim`](src/sim/) | Backtest sim + winning rate/distribution analysis |
+| [`src/sim`](src/sim/) | Backtest sim + crawl replay series (`hhld-sim`) |
 | [`src/warehouse`](src/warehouse/) | Market data store (SQLite) |
 | [`src/crawl`](src/crawl/) | Crawl stubs → warehouse; live multi-exchange NDJSON feed (`hhld-feed`) |
 | [`src/market`](src/market/) | Event-driven BookStore, Bus, Runner (P8.5) |
 | [`src/viz`](src/viz/) | Market dashboard snapshots (gap, signal, config) |
-| [`src/admin`](src/admin/) | Order / PnL audit (+ HTTP `/trading/pnl`, `/trading/orders`, `/trading/market`) |
+| [`src/admin`](src/admin/) | Order / PnL audit (+ `/trading/pnl`, `/trading/orders`, `/trading/market`, `/sim`) |
+| [`view`](view/) | Dashboard HTML/CSS/JS served at `/view/` |
 
 Example config: [`configs/default.json`](configs/default.json).
 
@@ -43,6 +44,11 @@ go run ./cmd/hhld-crawl -sample data/samples/btcusd_books.ndjson -db ./hhld.db
 
 # capture live books/ticks from configured exchanges to NDJSON (research)
 go run ./cmd/hhld-feed -config configs/crawl.json
+
+# replay crawled NDJSON (any two venues) — gap / PnL / signals
+go run ./cmd/hhld-sim -ndjson data/crawl/btcusd-live.ndjson
+# fallback: -ndjson data/samples/btcusd_books.ndjson
+# → http://127.0.0.1:8080/sim
 ```
 
 See [spec/trading.md](spec/trading.md#audit-dashboard-lightweight).

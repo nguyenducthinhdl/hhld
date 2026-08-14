@@ -58,9 +58,12 @@ func TestLiveSnapshotToNDJSON(t *testing.T) {
 	cfg := crawl.LiveConfig{
 		Output: out,
 		Kind:   exchange.KindPerp,
-		SymbolMap: map[string]config.SymbolEntry{
-			"BTCUSD": {Venues: map[string]string{"fake": "BTC"}},
-		},
+		SymbolMap: []config.SymbolEntry{{
+			Symbol: "BTCUSD",
+			Venues: map[string]config.VenueSpec{
+				"fake": {SymbolName: "BTC"},
+			},
+		}},
 		Feeds: []crawl.FeedConfig{{
 			Exchange: "fake", Symbol: "BTCUSD", Method: "snapshot_book", Interval: "5ms",
 		}},

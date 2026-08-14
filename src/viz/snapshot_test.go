@@ -17,11 +17,17 @@ func TestConfigView_FromDefault(t *testing.T) {
 	if cv.VenueA != "hyperliquid" || cv.VenueB != "grvt" {
 		t.Fatalf("%+v", cv)
 	}
-	if cv.EffectiveSize != "1" || cv.MinGap != 0.3 {
+	if cv.EffectiveSize != "0.00003" || cv.MinGap != 0.3 {
 		t.Fatalf("%+v", cv)
 	}
-	if cv.FeesByVenue["hyperliquid"].RateBps != 3.5 {
+	if cv.MinSize != "0.000015" || cv.MaxSize != "0.00003" {
+		t.Fatalf("size range: %+v", cv)
+	}
+	if cv.FeesByVenue["hyperliquid"].RateBps != 1 {
 		t.Fatalf("fees: %+v", cv.FeesByVenue)
+	}
+	if cv.FeesByVenue["grvt"].RateBps != 2 || cv.FeesByVenue["grvt"].CommissionFixed != 0.01 {
+		t.Fatalf("grvt fees: %+v", cv.FeesByVenue["grvt"])
 	}
 	if cv.Budgets["hyperliquid/BTCUSD"] != "10000" {
 		t.Fatalf("budgets: %+v", cv.Budgets)
@@ -104,9 +110,14 @@ func TestBuildSnapshot_AndSignal(t *testing.T) {
 	if snap2.Signal == nil || snap2.Signal.Kind != "decision" || snap2.Signal.TraceID != "arb-1" {
 		t.Fatalf("signal: %+v", snap2.Signal)
 	}
-	sigs.NotifyMiss("BTCUSD", "rate_limited")
+	sigs.NotifyMiss("BTCUSD", "rate_limited", nil)
 	snap3 := src.BuildSnapshot("BTCUSD")
 	if snap3.Signal.Kind != "miss" || snap3.Signal.Reason != "rate_limited" {
 		t.Fatalf("miss: %+v", snap3.Signal)
+	}
+	sigs.NotifyMiss("BTCUSD", "stale_book", map[string]any{"gap_time": int64(5123), "venue": "hyperliquid"})
+	snap4 := src.BuildSnapshot("BTCUSD")
+	if snap4.Signal.GapTime != 5123 || snap4.Signal.Reason != "stale_book" || snap4.Signal.Venue != "hyperliquid" {
+		t.Fatalf("stale gap_time: %+v", snap4.Signal)
 	}
 }

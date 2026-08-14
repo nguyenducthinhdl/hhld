@@ -13,12 +13,14 @@ import (
 type ArbConfig struct {
 	// Symbols to evaluate (BTCUSD first; multi-symbol via config).
 	Symbols []exchange.Symbol
-	// Size is the default order size string applied to each leg.
+	// Size is the default order size string applied to each leg (typically trading.max_size).
 	Size string
-	// SizeBySymbol overrides Size per symbol (e.g. min(trading.size, max_volume_trade)).
+	// SizeBySymbol overrides Size per symbol (trading.max_size, at least min_size).
 	SizeBySymbol map[exchange.Symbol]string
-	// MinGap is the minimum (sellBid - buyAsk) required to emit a Decision.
+	// MinGap is the default minimum (sellBid - buyAsk) required to emit a Decision.
 	MinGap float64
+	// MinGapBySymbol overrides MinGap per symbol.
+	MinGapBySymbol map[exchange.Symbol]float64
 }
 
 // CrossVenueArb detects gaps between two venue books and emits two-leg Decisions.
@@ -114,7 +116,8 @@ func (a *CrossVenueArb) decisionForSymbol(sym exchange.Symbol, books []exchange.
 		return Decision{}, false, nil
 	}
 	gap := sell.bid - buy.ask
-	if gap < a.cfg.MinGap {
+	minGap := a.minGap(sym)
+	if gap < minGap {
 		return Decision{}, false, nil
 	}
 
@@ -143,8 +146,17 @@ func (a *CrossVenueArb) decisionForSymbol(sym exchange.Symbol, books []exchange.
 				Size:   sz,
 			},
 		},
-		Reason: fmt.Sprintf("gap=%.4f >= min=%.4f", gap, a.cfg.MinGap),
+		Reason: fmt.Sprintf("gap=%.4f >= min=%.4f", gap, minGap),
 	}, true, nil
+}
+
+func (a *CrossVenueArb) minGap(sym exchange.Symbol) float64 {
+	if a.cfg.MinGapBySymbol != nil {
+		if g, ok := a.cfg.MinGapBySymbol[sym]; ok {
+			return g
+		}
+	}
+	return a.cfg.MinGap
 }
 
 func (a *CrossVenueArb) sizeFor(sym exchange.Symbol) string {

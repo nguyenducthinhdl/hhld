@@ -70,6 +70,13 @@ flowchart LR
 - **Done when**: Simulation accepts market input + strategy, outputs PnL; Analyzer reports win rate/distribution.
 - **Skip**: rich Visualization Module (CSV is enough); production ML.
 
+### P6.5 — Crawl replay visualization
+
+- **Status:** [done](roadmap/p65.md)
+- **Goal**: Replay crawled books for any two venues; editable config tables; D3 gap/PnL/signal chart with hover and scale scrollers.
+- **Done when**: `GET /sim` + `POST /sim/run` serve series from NDJSON; venue pair is not hardcoded.
+- **Skip**: persisting UI edits to disk, live capital.
+
 ### P7 — Crawl and warehouse
 
 - **Goal**: Minimal crawl stubs + local warehouse (SQLite/Parquet) to persist ticks for backtest.

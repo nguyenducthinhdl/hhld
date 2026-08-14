@@ -27,53 +27,59 @@ type Params struct {
 	Budgets map[string]float64
 	// OrderInterval is min time between accepted Evaluates per symbol. Missing/0 = no limit.
 	OrderInterval map[exchange.Symbol]time.Duration
-	// MaxVolumeTrade caps leg size per symbol. Missing/0 = no cap check.
+	// MaxVolumeTrade caps leg size per symbol (from trading.max_size). Missing/0 = no cap check.
 	MaxVolumeTrade map[exchange.Symbol]float64
 }
 
-// ParamsFromConfig maps config.Risk (and symbol_map limits) into Params.
+// ParamsFromConfig maps global risk + per-symbol trading/risk/venues into Params.
 func ParamsFromConfig(cfg config.Config) Params {
-	r := cfg.Risk
-	fees := FeeSchedule{
-		DefaultRateBps: r.FeeBpsPerLeg,
-		ByVenue:        make(map[exchange.VenueID]VenueFee, len(r.Fees)),
-	}
-	for venue, vf := range r.Fees {
-		fees.ByVenue[exchange.VenueID(venue)] = VenueFee{
-			RateBps:         vf.RateBps,
-			Fixed:           vf.Fixed,
-			CommissionBps:   vf.CommissionBps,
-			CommissionFixed: vf.CommissionFixed,
-		}
-	}
-	budgets := make(map[string]float64, len(r.Budgets))
-	for k, raw := range r.Budgets {
-		v, err := strconv.ParseFloat(raw, 64)
-		if err != nil || v <= 0 {
-			continue // missing/invalid/0 = unlimited
-		}
-		budgets[k] = v
-	}
+	fees := FeeSchedule{ByVenue: map[exchange.VenueID]VenueFee{}}
+	budgets := map[string]float64{}
 	intervals := make(map[exchange.Symbol]time.Duration, len(cfg.SymbolMap))
 	maxVol := make(map[exchange.Symbol]float64, len(cfg.SymbolMap))
-	for sym, entry := range cfg.SymbolMap {
-		s := exchange.Symbol(sym)
-		if entry.OrderInterval != nil {
-			intervals[s] = entry.OrderInterval.Duration()
+	var feeDefault, lat, pff float64
+	var maxAge time.Duration
+	for i, entry := range cfg.SymbolMap {
+		if i == 0 {
+			feeDefault = entry.Risk.FeeBpsPerLeg
+			lat = entry.Risk.LatencyPenalty
+			pff = entry.Risk.PartialFillFactor
+			maxAge = entry.Risk.MaxBookAge.Duration()
 		}
-		if entry.MaxVolumeTrade != "" {
-			if mv, err := strconv.ParseFloat(entry.MaxVolumeTrade, 64); err == nil && mv > 0 {
-				maxVol[s] = mv
+		if entry.Trading.OrderInterval != nil {
+			intervals[entry.Symbol] = entry.Trading.OrderInterval.Duration()
+		}
+		if mv, err := strconv.ParseFloat(entry.Trading.MaxSize, 64); err == nil && mv > 0 {
+			maxVol[entry.Symbol] = mv
+		}
+		for venue, spec := range entry.Venues {
+			vid := exchange.VenueID(venue)
+			if _, exists := fees.ByVenue[vid]; !exists {
+				fees.ByVenue[vid] = VenueFee{
+					RateBps:         spec.Fees.RateBps,
+					Fixed:           spec.Fees.Fixed,
+					CommissionBps:   spec.Fees.CommissionBps,
+					CommissionFixed: spec.Fees.CommissionFixed,
+				}
 			}
+			if spec.Budget == "" {
+				continue
+			}
+			v, err := strconv.ParseFloat(spec.Budget, 64)
+			if err != nil || v <= 0 {
+				continue
+			}
+			budgets[config.BudgetKey(vid, entry.Symbol)] = v
 		}
 	}
+	fees.DefaultRateBps = feeDefault
 	p := Params{
 		Fees:              fees,
-		FeeBpsPerLeg:      r.FeeBpsPerLeg,
-		LatencyPenalty:    r.LatencyPenalty,
-		PartialFillFactor: r.PartialFillFactor,
-		MaxBookAge:        r.MaxBookAge.Duration(),
-		MaxInFlight:       r.MaxInFlight,
+		FeeBpsPerLeg:      feeDefault,
+		LatencyPenalty:    lat,
+		PartialFillFactor: pff,
+		MaxBookAge:        maxAge,
+		MaxInFlight:       cfg.Risk.MaxInFlight,
 		Budgets:           budgets,
 		OrderInterval:     intervals,
 		MaxVolumeTrade:    maxVol,
@@ -87,7 +93,6 @@ func ParamsFromConfig(cfg config.Config) Params {
 	if p.MaxBookAge <= 0 {
 		p.MaxBookAge = 2 * time.Second
 	}
-	// Keep DefaultRateBps and FeeBpsPerLeg aligned for callers that set only one.
 	if p.Fees.DefaultRateBps == 0 && p.FeeBpsPerLeg != 0 {
 		p.Fees.DefaultRateBps = p.FeeBpsPerLeg
 	}

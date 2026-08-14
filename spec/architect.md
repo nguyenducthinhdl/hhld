@@ -39,14 +39,16 @@ Offline path (not on the hot loop): `crawl` → `warehouse` → `sim.Replay` use
 
 | Package | Responsibility |
 |---------|----------------|
-| `config` | Symbols, venue A/B, size, `min_gap`, fees, timeouts, symbol map |
+| `config` | Symbols, venue A/B, `min_size` / `max_size`, `min_gap`, fees, timeouts, symbol map |
 | `exchange` | Venue-agnostic `Book` / `Tick` / `PlaceOrder`; `fake`, `hyperliquid`, `grvt` |
 | `market` | `BookEvent`, `BookStore`, bounded `Bus`, `Runner`, bridges |
 | `strategy` | `OnBooks` → `Decision`; `PlaceDecision` places legs |
 | `risk` | `TryAcquire` + `Evaluate` (fees, stale, overload) |
 | `admin` / `pnl` | Order audit + realized PnL + market dashboard |
+| `view` | HTML/CSS/JS for `/trading/*` and `/sim` (static `/view/`) |
 | `viz` | Snapshot builders (gap, signal, config) for `/trading/market` |
-| `warehouse` / `crawl` / `sim` | Offline data + backtest |
+| `sim` | Backtest replay + crawl series for `/sim` |
+| `warehouse` / `crawl` | Offline data + live NDJSON feed |
 
 Strategy never imports vendor SDKs. Adapters normalize vendor payloads into HHLD types.
 
@@ -55,10 +57,10 @@ Strategy never imports vendor SDKs. Adapters normalize vendor payloads into HHLD
 Each live venue is a **read-first** adapter behind `exchange.Exchange`.
 
 ```text
-Config.symbol_map
-  BTCUSD.venues → HL coin "BTC", GRVT "BTC_USDT_Perp"
-  BTCUSD.order_interval / max_volume_trade → Risk + Strategy sizing
-risk.budgets["hyperliquid/BTCUSD"] → notional cap
+Config.symbol_map[]
+  BTCUSD.venues.<id>.symbol_name → HL coin "BTC", GRVT "BTC_USDT_Perp"
+  BTCUSD.trading.max_size / order_interval → Strategy size + Risk cap
+  BTCUSD.venues.<id>.budget → notional cap (key venue/symbol)
         │
         ▼
 ┌───────────────────┐              ┌───────────────────┐
@@ -173,11 +175,11 @@ In-process only (**no** RabbitMQ on the hot path):
 | Books younger than `max_book_age` | `stale_book` |
 | Venues healthy | unhealthy venue |
 | One pipeline per arb key; global in-flight cap | `lock_busy`, `overloaded` |
-| Leg size ≤ `max_volume_trade` | `max_volume_exceeded` |
+| Leg size ≤ `trading.max_size` | `max_volume_exceeded` |
 | Min `order_interval` since last accept for symbol | `rate_limited` |
-| Notional ≤ `risk.budgets[venue/symbol]` | `budget_exceeded:...` |
+| Notional ≤ `venues.<venue>.budget` | `budget_exceeded:...` |
 
-Effective order size is `min(trading.size, max_volume_trade)` before Risk sees the Decision.
+Effective order size is `trading.max_size` (at least `min_size`) before Risk sees the Decision.
 
 Doctrine: **miss more** — skip the trade rather than take a bad or racing fill.
 

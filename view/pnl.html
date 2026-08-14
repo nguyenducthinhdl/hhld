@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <title>HHLD PnL</title>
+  <link rel="stylesheet" href="/view/pnl.css"/>
+</head>
+<body>
+  <nav><a href="/trading/pnl">PnL</a> · <a href="/trading/orders">Orders</a> · <a href="/trading/market">Market</a> · <a href="/sim">Sim</a> · <a href="/trading/pnl?format=json">JSON</a></nav>
+  <div class="card">
+    <h1>Trading PnL</h1>
+    <dl>
+      <dt>Realized</dt><dd>{{.realized}}</dd>
+      <dt>Unrealized</dt><dd>{{.unrealized}}</dd>
+      <dt>As of</dt><dd class="as-of">{{.as_of}}</dd>
+      {{if .hedge_id}}<dt>Hedge {{.hedge_id}}</dt><dd>{{.hedge}}</dd>{{end}}
+    </dl>
+  </div>
+</body>
+</html>

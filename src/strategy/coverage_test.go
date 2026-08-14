@@ -11,9 +11,17 @@ import (
 
 func TestArbConfigFrom_AndName(t *testing.T) {
 	cfg := config.Default()
-	cfg.Symbols = []exchange.Symbol{"BTCUSD", "ETHUSD"}
-	cfg.Trading.Size = "0.25"
-	cfg.Trading.MinGap = 0.4
+	cfg.UpdateSymbol("BTCUSD", func(e *config.SymbolEntry) {
+		e.Trading.MinSize = "0.01"
+		e.Trading.MaxSize = "0.25"
+		e.Trading.MinGap = 0.4
+	})
+	eth := cfg.SymbolMap[0]
+	eth.Symbol = "ETHUSD"
+	eth.Trading.MinSize = "0.01"
+	eth.Trading.MaxSize = "0.25"
+	eth.Trading.MinGap = 0.4
+	cfg.SymbolMap = append(cfg.SymbolMap, eth)
 	ac := strategy.ArbConfigFrom(cfg)
 	if len(ac.Symbols) != 2 || ac.Size != "0.25" || ac.MinGap != 0.4 {
 		t.Fatalf("%+v", ac)
@@ -27,7 +35,7 @@ func TestArbConfigFrom_AndName(t *testing.T) {
 	}
 }
 
-func TestCrossVenueArb_ClampsToMaxVolumeTrade(t *testing.T) {
+func TestCrossVenueArb_UsesSizeBySymbol(t *testing.T) {
 	arb := strategy.NewCrossVenueArb(strategy.ArbConfig{
 		Symbols: []exchange.Symbol{"BTCUSD"},
 		Size:    "2",
@@ -57,7 +65,7 @@ func TestCrossVenueArb_ClampsToMaxVolumeTrade(t *testing.T) {
 	}
 	for _, leg := range ds[0].Legs {
 		if leg.Size != "1" {
-			t.Fatalf("want clamped size 1, got %+v", leg)
+			t.Fatalf("want size 1, got %+v", leg)
 		}
 	}
 }

@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <title>HHLD Sim</title>
+  <link rel="stylesheet" href="/view/sim.css"/>
+  <script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
+</head>
+<body>
+  <nav>
+    <a href="/trading/pnl">PnL</a> ·
+    <a href="/trading/orders">Orders</a> ·
+    <a href="/trading/market">Market</a> ·
+    <a href="/sim">Sim</a> ·
+    <a href="/sim?format=json">JSON</a>
+  </nav>
+  <h1>Crawl replay</h1>
+  <p class="sub">Paper arb on crawled books · any two venues · Apply re-runs (config file not written)</p>
+  <p id="msg" class="msg"></p>
+
+  <div class="panel">
+    <h2>Config</h2>
+    <div class="row">
+      <label>venue A</label><select id="venue_a"></select>
+      <label>venue B</label><select id="venue_b"></select>
+      <label>symbol</label><input type="text" id="symbol" size="10"/>
+    </div>
+    <table class="cfg" id="knobs"></table>
+    <table class="cfg fees" id="fees"></table>
+    <button id="apply">Apply</button>
+  </div>
+
+  <div class="panel">
+    <h2>Gap / PnL</h2>
+    <div class="row">
+      <label>gap y zoom</label><input type="range" id="gapZoom" min="1" max="20" step="0.5" value="1"/>
+      <label>pnl y zoom</label><input type="range" id="pnlZoom" min="1" max="20" step="0.5" value="1"/>
+      <button type="button" id="resetScale">Reset scale</button>
+      <span id="realized"></span>
+    </div>
+    <svg id="chart"></svg>
+    <div id="tip" class="tooltip" style="display:none"></div>
+  </div>
+
+  <div class="panel">
+    <h2>Signals</h2>
+    <p class="sub" id="sigSummary">—</p>
+    <div class="sig-grid">
+      <div>
+        <h3>Decision vs miss</h3>
+        <svg id="sigKind"></svg>
+      </div>
+      <div>
+        <h3>Miss by reason</h3>
+        <table class="miss-table" id="sigMiss">
+          <thead>
+            <tr>
+              <th>reason</th>
+              <th>n</th>
+              <th>detail</th>
+              <th>distribution (A vs B)</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  <script src="/view/sim.js"></script>
+</body>
+</html>

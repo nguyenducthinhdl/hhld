@@ -40,7 +40,7 @@ type RunnerConfig struct {
 // SignalNotifier is implemented by viz.SignalLog (avoids market→viz import).
 type SignalNotifier interface {
 	NotifyDecision(sym exchange.Symbol, d strategy.Decision, grossGap float64)
-	NotifyMiss(sym exchange.Symbol, reason string)
+	NotifyMiss(sym exchange.Symbol, reason string, info map[string]any)
 }
 
 // Runner applies bus events to the BookStore and evaluates Strategy on every update
@@ -117,7 +117,7 @@ func (r *Runner) evaluate(sym exchange.Symbol) {
 		r.missPeer++
 		r.mu.Unlock()
 		if r.cfg.Signals != nil {
-			r.cfg.Signals.NotifyMiss(sym, "peer_missing")
+			r.cfg.Signals.NotifyMiss(sym, "peer_missing", nil)
 		}
 		return
 	}
@@ -126,7 +126,7 @@ func (r *Runner) evaluate(sym exchange.Symbol) {
 	decisions, err := r.cfg.Strategy.OnBooks(ctx, books)
 	if err != nil {
 		if r.cfg.Signals != nil {
-			r.cfg.Signals.NotifyMiss(sym, "strategy_error")
+			r.cfg.Signals.NotifyMiss(sym, "strategy_error", nil)
 		}
 		return
 	}
@@ -136,7 +136,7 @@ func (r *Runner) evaluate(sym exchange.Symbol) {
 
 	if len(decisions) == 0 {
 		if r.cfg.Signals != nil {
-			r.cfg.Signals.NotifyMiss(sym, "no_edge")
+			r.cfg.Signals.NotifyMiss(sym, "no_edge", nil)
 		}
 		return
 	}
@@ -154,7 +154,7 @@ func (r *Runner) execute(ctx context.Context, d strategy.Decision, mkt risk.Mark
 		release, v = aq.TryAcquire(d)
 		if !v.OK {
 			if r.cfg.Signals != nil {
-				r.cfg.Signals.NotifyMiss(sym, v.Reason)
+				r.cfg.Signals.NotifyMiss(sym, v.Reason, v.Info)
 			}
 			return
 		}
@@ -163,13 +163,13 @@ func (r *Runner) execute(ctx context.Context, d strategy.Decision, mkt risk.Mark
 	v, err := r.cfg.Risk.Evaluate(ctx, d, mkt)
 	if err != nil {
 		if r.cfg.Signals != nil {
-			r.cfg.Signals.NotifyMiss(sym, "evaluate_error")
+			r.cfg.Signals.NotifyMiss(sym, "evaluate_error", nil)
 		}
 		return
 	}
 	if !v.OK {
 		if r.cfg.Signals != nil {
-			r.cfg.Signals.NotifyMiss(sym, v.Reason)
+			r.cfg.Signals.NotifyMiss(sym, v.Reason, v.Info)
 		}
 		return
 	}

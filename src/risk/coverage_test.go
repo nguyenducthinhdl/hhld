@@ -11,14 +11,16 @@ import (
 
 func TestParamsFromConfig_DefaultsAndAlign(t *testing.T) {
 	cfg := config.Default()
-	cfg.Risk.PartialFillFactor = 0
+	cfg.UpdateSymbol("BTCUSD", func(e *config.SymbolEntry) {
+		e.Risk.PartialFillFactor = 0
+		e.Risk.MaxBookAge = 0
+	})
 	cfg.Risk.MaxInFlight = 0
-	cfg.Risk.MaxBookAge = 0
 	p := risk.ParamsFromConfig(cfg)
 	if p.PartialFillFactor != 1 || p.MaxInFlight != 4 || p.MaxBookAge <= 0 {
 		t.Fatalf("defaults: %+v", p)
 	}
-	if p.Fees.ByVenue["hyperliquid"].RateBps != 3.5 {
+	if p.Fees.ByVenue["hyperliquid"].RateBps != 1 {
 		t.Fatalf("venue fees: %+v", p.Fees)
 	}
 	g := risk.NewGate(p)
