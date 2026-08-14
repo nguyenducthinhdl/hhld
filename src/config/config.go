@@ -74,12 +74,54 @@ type SymbolRisk struct {
 	MaxBookAge        Duration `json:"max_book_age"`
 }
 
-// VenueFee models one exchange's fee/commission schedule (additive components).
-type VenueFee struct {
+// SideFee is one order side's fee/commission schedule (additive components).
+type SideFee struct {
 	RateBps         float64 `json:"rate_bps"`
 	Fixed           float64 `json:"fixed"`
 	CommissionBps   float64 `json:"commission_bps"`
 	CommissionFixed float64 `json:"commission_fixed"`
+}
+
+// VenueFee is per-side fees for one venue (buy vs sell may differ).
+type VenueFee struct {
+	Buy  SideFee `json:"buy"`
+	Sell SideFee `json:"sell"`
+}
+
+// Both copies this side schedule onto buy and sell.
+func (f SideFee) Both() VenueFee {
+	return VenueFee{Buy: f, Sell: f}
+}
+
+func (f SideFee) amountsValid() bool {
+	return f.RateBps >= 0 && f.Fixed >= 0 && f.CommissionBps >= 0 && f.CommissionFixed >= 0
+}
+
+// UnmarshalJSON accepts either {"buy":..., "sell":...} or a flat SideFee applied to both sides.
+func (f *VenueFee) UnmarshalJSON(b []byte) error {
+	var sides struct {
+		Buy  *SideFee `json:"buy"`
+		Sell *SideFee `json:"sell"`
+	}
+	if err := json.Unmarshal(b, &sides); err != nil {
+		return err
+	}
+	if sides.Buy != nil || sides.Sell != nil {
+		if sides.Buy != nil {
+			f.Buy = *sides.Buy
+		}
+		if sides.Sell != nil {
+			f.Sell = *sides.Sell
+		}
+		return nil
+	}
+	var flat SideFee
+	if err := json.Unmarshal(b, &flat); err != nil {
+		return err
+	}
+	f.Buy = flat
+	f.Sell = flat
+	return nil
 }
 
 // Duration wraps time.Duration for JSON string unmarshaling.
@@ -144,8 +186,8 @@ func defaultBTCUSD() SymbolEntry {
 			MaxBookAge:        Duration(2 * time.Second),
 		},
 		Venues: map[string]VenueSpec{
-			"hyperliquid": {SymbolName: "BTC", Fees: VenueFee{RateBps: 1}, Budget: "10000"},
-			"grvt":        {SymbolName: "BTC_USDT_Perp", Fees: VenueFee{RateBps: 2, CommissionFixed: 0.01}, Budget: "10000"},
+			"hyperliquid": {SymbolName: "BTC", Fees: SideFee{RateBps: 1}.Both(), Budget: "10000"},
+			"grvt":        {SymbolName: "BTC_USDT_Perp", Fees: SideFee{RateBps: 2, CommissionFixed: 0.01}.Both(), Budget: "10000"},
 		},
 	}
 }
@@ -297,7 +339,7 @@ func (e SymbolEntry) validate(i int) error {
 			return fmt.Errorf("%s: venue key and symbol_name are required", prefix)
 		}
 		f := spec.Fees
-		if f.RateBps < 0 || f.Fixed < 0 || f.CommissionBps < 0 || f.CommissionFixed < 0 {
+		if !f.Buy.amountsValid() || !f.Sell.amountsValid() {
 			return fmt.Errorf("%s: venues[%s].fees amounts must be >= 0", prefix, venue)
 		}
 		if spec.Budget != "" {

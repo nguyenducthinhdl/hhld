@@ -6,7 +6,7 @@ import (
 	"github.com/nguyenducthinhdl/hhld/src/exchange"
 )
 
-// VenueFee is one venue's trading-cost model (miss-more / paper fills).
+// SideFee is one order side's trading-cost model (miss-more / paper fills).
 // Components are additive so exchanges that mix rate + flat + commission are covered:
 //
 //	total = notional*(RateBps+CommissionBps)/10_000 + Fixed + CommissionFixed
@@ -15,7 +15,7 @@ import (
 //   - rate only:     {RateBps: 5}
 //   - fixed only:    {Fixed: 0.10}
 //   - rate + commission: {RateBps: 3.5, CommissionFixed: 0.01}
-type VenueFee struct {
+type SideFee struct {
 	// RateBps is venue trading fee in basis points of notional (price*size).
 	RateBps float64
 	// Fixed is a flat venue trading fee per fill/leg (quote currency).
@@ -26,16 +26,35 @@ type VenueFee struct {
 	CommissionFixed float64
 }
 
-// FeeSchedule resolves per-venue fees; unknown venues fall back to DefaultRateBps.
+// VenueFee is per-side fees for one venue (buy vs sell may differ).
+type VenueFee struct {
+	Buy  SideFee
+	Sell SideFee
+}
+
+// Both copies this side schedule onto buy and sell.
+func (f SideFee) Both() VenueFee {
+	return VenueFee{Buy: f, Sell: f}
+}
+
+// For returns the schedule for side (sell vs buy).
+func (f VenueFee) For(side exchange.Side) SideFee {
+	if side == exchange.SideSell {
+		return f.Sell
+	}
+	return f.Buy
+}
+
+// FeeSchedule resolves per-venue, per-side fees; unknown venues fall back to DefaultRateBps.
 type FeeSchedule struct {
 	// DefaultRateBps applies when a venue has no entry in ByVenue (legacy fee_bps_per_leg).
 	DefaultRateBps float64
-	// ByVenue maps exchange id → fee model.
+	// ByVenue maps exchange id → buy/sell fee model.
 	ByVenue map[exchange.VenueID]VenueFee
 }
 
-// Cost returns the modeled fee for one leg on venue at price/size.
-func (s FeeSchedule) Cost(venue exchange.VenueID, price, size float64) float64 {
+// Cost returns the modeled fee for one leg on venue/side at price/size.
+func (s FeeSchedule) Cost(venue exchange.VenueID, side exchange.Side, price, size float64) float64 {
 	if price <= 0 || size <= 0 {
 		return 0
 	}
@@ -43,11 +62,11 @@ func (s FeeSchedule) Cost(venue exchange.VenueID, price, size float64) float64 {
 	if !ok {
 		return rateFee(price, size, s.DefaultRateBps)
 	}
-	return fee.Cost(price, size)
+	return fee.For(side).Cost(price, size)
 }
 
 // Cost returns total fee for one fill given price and size.
-func (f VenueFee) Cost(price, size float64) float64 {
+func (f SideFee) Cost(price, size float64) float64 {
 	return f.Parts(price, size).Total
 }
 
@@ -63,7 +82,7 @@ type FeeParts struct {
 }
 
 // Parts splits Cost into rate / fixed / commission components.
-func (f VenueFee) Parts(price, size float64) FeeParts {
+func (f SideFee) Parts(price, size float64) FeeParts {
 	p := FeeParts{RateBps: f.RateBps, CommissionBps: f.CommissionBps}
 	if price <= 0 || size <= 0 {
 		return p
@@ -76,13 +95,13 @@ func (f VenueFee) Parts(price, size float64) FeeParts {
 	return p
 }
 
-// Parts resolves the venue schedule (or DefaultRateBps) and splits the fill cost.
-func (s FeeSchedule) Parts(venue exchange.VenueID, price, size float64) FeeParts {
+// Parts resolves the venue/side schedule (or DefaultRateBps) and splits the fill cost.
+func (s FeeSchedule) Parts(venue exchange.VenueID, side exchange.Side, price, size float64) FeeParts {
 	fee, ok := s.ByVenue[venue]
 	if !ok {
-		fee = VenueFee{RateBps: s.DefaultRateBps}
+		return SideFee{RateBps: s.DefaultRateBps}.Parts(price, size)
 	}
-	return fee.Parts(price, size)
+	return fee.For(side).Parts(price, size)
 }
 
 func rateFee(price, size, bps float64) float64 {

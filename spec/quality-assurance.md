@@ -253,6 +253,7 @@ Merge blockers: each row must stay **pass**.
 | `[TestMemory_RecordAndListByTrace](../src/admin/memory_test.go)`                  | Persist order; list by TraceID           | pass   |
 | `[TestRecordPaperDecision_ReconstructableArb](../src/admin/memory_test.go)`       | Paper place → orders + fee’d fills + PnL | pass   |
 | `[TestRecordPaperDecision_PartialLegStillAuditable](../src/admin/memory_test.go)` | 1-leg fail still auditable               | pass   |
+| `[TestRecordPaperDecision_RejectsUnparseablePriceSize](../src/admin/memory_test.go)` | Bad/zero price or size → no fill     | pass   |
 | `[TestHandler_TradingPnL](../src/admin/http_test.go)`                             | `/trading/pnl` JSON                      | pass   |
 | `[TestHandler_TradingOrders](../src/admin/http_test.go)`                          | `/trading/orders` JSON by TraceID        | pass   |
 | `[TestHandler_HTMLAcceptAndHedgeQuery](../src/admin/coverage_test.go)`            | HTML PnL/orders; Accept JSON; hedge_id   | pass   |

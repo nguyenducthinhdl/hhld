@@ -32,8 +32,8 @@ func TestParseJSON_OverridesAndMultiSymbol(t *testing.T) {
       "trading": { "strategy": "cross-venue-arb", "kind": "perp", "min_size": "0.01", "max_size": "0.5", "min_gap": 0.5, "order_interval": "1s" },
       "risk": { "fee_bps_per_leg": 5, "latency_penalty": 0.05, "partial_fill_factor": 0.95, "max_book_age": "2s" },
       "venues": {
-        "hyperliquid": { "symbol_name": "BTC", "fees": { "rate_bps": 1 }, "budget": "10000" },
-        "grvt": { "symbol_name": "BTC_USDT_Perp", "fees": { "rate_bps": 2 }, "budget": "10000" }
+        "hyperliquid": { "symbol_name": "BTC", "fees": { "buy": { "rate_bps": 1 }, "sell": { "rate_bps": 1 } }, "budget": "10000" },
+        "grvt": { "symbol_name": "BTC_USDT_Perp", "fees": { "buy": { "rate_bps": 2 }, "sell": { "rate_bps": 2 } }, "budget": "10000" }
       }
     },
     {
@@ -41,8 +41,8 @@ func TestParseJSON_OverridesAndMultiSymbol(t *testing.T) {
       "trading": { "strategy": "cross-venue-arb", "kind": "perp", "min_size": "0.01", "max_size": "0.5", "min_gap": 0.5, "order_interval": "1s" },
       "risk": { "fee_bps_per_leg": 5, "latency_penalty": 0.05, "partial_fill_factor": 0.95, "max_book_age": "2s" },
       "venues": {
-        "hyperliquid": { "symbol_name": "ETH", "fees": { "rate_bps": 1 }, "budget": "5000" },
-        "grvt": { "symbol_name": "ETH_USDT_Perp", "fees": { "rate_bps": 2 }, "budget": "5000" }
+        "hyperliquid": { "symbol_name": "ETH", "fees": { "buy": { "rate_bps": 1 }, "sell": { "rate_bps": 1 } }, "budget": "5000" },
+        "grvt": { "symbol_name": "ETH_USDT_Perp", "fees": { "buy": { "rate_bps": 2 }, "sell": { "rate_bps": 2 } }, "budget": "5000" }
       }
     }
   ]
@@ -85,8 +85,8 @@ func TestLoadJSON_FromFile(t *testing.T) {
     "trading": { "strategy": "cross-venue-arb", "min_size": "0.01", "max_size": "1", "min_gap": 0.3, "kind": "perp" },
     "risk": { "fee_bps_per_leg": 5, "partial_fill_factor": 0.95, "max_book_age": "2s" },
     "venues": {
-      "hyperliquid": { "symbol_name": "BTC", "fees": { "rate_bps": 1 }, "budget": "10000" },
-      "grvt": { "symbol_name": "BTC_USDT_Perp", "fees": { "rate_bps": 2 }, "budget": "10000" }
+      "hyperliquid": { "symbol_name": "BTC", "fees": { "buy": { "rate_bps": 1 }, "sell": { "rate_bps": 1 } }, "budget": "10000" },
+      "grvt": { "symbol_name": "BTC_USDT_Perp", "fees": { "buy": { "rate_bps": 2 }, "sell": { "rate_bps": 2 } }, "budget": "10000" }
     }
   }]
 }`
@@ -113,6 +113,18 @@ func TestLoadJSON_RepoDefault(t *testing.T) {
 	hl, err := cfg.NativeSymbol("hyperliquid", "BTCUSD")
 	if err != nil || hl != "BTC" {
 		t.Fatalf("native: %q %v", hl, err)
+	}
+	entry, ok := cfg.Lookup("BTCUSD")
+	if !ok {
+		t.Fatal("missing BTCUSD")
+	}
+	hlFee := entry.Venues["hyperliquid"].Fees
+	if hlFee.Buy.RateBps != 1 || hlFee.Sell.RateBps != 1 {
+		t.Fatalf("hl fees: %+v", hlFee)
+	}
+	grFee := entry.Venues["grvt"].Fees
+	if grFee.Buy.RateBps != 2 || grFee.Sell.RateBps != 2 {
+		t.Fatalf("grvt fees: %+v", grFee)
 	}
 }
 

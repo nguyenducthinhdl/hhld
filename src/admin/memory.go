@@ -130,8 +130,14 @@ func RecordPaperDecision(ctx context.Context, a Auditor, tracker pnl.Tracker, d 
 		if r.Err != nil {
 			continue
 		}
-		px, _ := strconv.ParseFloat(r.Leg.Price, 64)
-		sz, _ := strconv.ParseFloat(r.Leg.Size, 64)
+		px, err := parsePositive("price", r.Leg.Price)
+		if err != nil {
+			return fmt.Errorf("admin: fill %s venue=%s: %w", d.TraceID, r.Leg.Venue, err)
+		}
+		sz, err := parsePositive("size", r.Leg.Size)
+		if err != nil {
+			return fmt.Errorf("admin: fill %s venue=%s: %w", d.TraceID, r.Leg.Venue, err)
+		}
 		fill := exchange.Fill{
 			OrderID:       orderID,
 			ClientOrderID: clientID,
@@ -143,7 +149,7 @@ func RecordPaperDecision(ctx context.Context, a Auditor, tracker pnl.Tracker, d 
 			Side:          r.Leg.Side,
 			Price:         r.Leg.Price,
 			Size:          r.Leg.Size,
-			Fee:           risk.FormatFee(fees.Cost(r.Leg.Venue, px, sz)),
+			Fee:           risk.FormatFee(fees.Cost(r.Leg.Venue, r.Leg.Side, px, sz)),
 			Time:          ts,
 		}
 		if err := tracker.RecordFill(ctx, fill); err != nil {
@@ -151,4 +157,15 @@ func RecordPaperDecision(ctx context.Context, a Auditor, tracker pnl.Tracker, d 
 		}
 	}
 	return nil
+}
+
+func parsePositive(field, raw string) (float64, error) {
+	v, err := strconv.ParseFloat(raw, 64)
+	if err != nil {
+		return 0, fmt.Errorf("parse %s %q: %w", field, raw, err)
+	}
+	if v <= 0 {
+		return 0, fmt.Errorf("%s must be positive, got %q", field, raw)
+	}
+	return v, nil
 }

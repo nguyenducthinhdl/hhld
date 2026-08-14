@@ -91,12 +91,18 @@ type TickView struct {
 	Time  time.Time `json:"time"`
 }
 
-// FeeView is one venue fee schedule for display.
-type FeeView struct {
+// SideFeeView is one buy or sell fee schedule for display.
+type SideFeeView struct {
 	RateBps         float64 `json:"rate_bps"`
 	Fixed           float64 `json:"fixed"`
 	CommissionBps   float64 `json:"commission_bps"`
 	CommissionFixed float64 `json:"commission_fixed"`
+}
+
+// FeeView is one venue's buy/sell fee schedule for display.
+type FeeView struct {
+	Buy  SideFeeView `json:"buy"`
+	Sell SideFeeView `json:"sell"`
 }
 
 // ConfigView is read-only trading/risk knobs that drive signals.
@@ -268,8 +274,8 @@ func ConfigFrom(cfg config.Config, symbol exchange.Symbol) ConfigView {
 	if ok {
 		for venue, spec := range entry.Venues {
 			fees[venue] = FeeView{
-				RateBps: spec.Fees.RateBps, Fixed: spec.Fees.Fixed,
-				CommissionBps: spec.Fees.CommissionBps, CommissionFixed: spec.Fees.CommissionFixed,
+				Buy:  sideFeeView(spec.Fees.Buy),
+				Sell: sideFeeView(spec.Fees.Sell),
 			}
 			if spec.Budget != "" {
 				budgets[config.BudgetKey(exchange.VenueID(venue), entry.Symbol)] = spec.Budget
@@ -301,6 +307,13 @@ func ConfigFrom(cfg config.Config, symbol exchange.Symbol) ConfigView {
 		MaxBookAge:        maxAge,
 		MaxInFlight:       cfg.Risk.MaxInFlight,
 		Budgets:           budgets,
+	}
+}
+
+func sideFeeView(f config.SideFee) SideFeeView {
+	return SideFeeView{
+		RateBps: f.RateBps, Fixed: f.Fixed,
+		CommissionBps: f.CommissionBps, CommissionFixed: f.CommissionFixed,
 	}
 }
 

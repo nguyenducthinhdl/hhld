@@ -58,28 +58,45 @@ function renderCfg(s) {
 }
 
 const feeFields = ['rate_bps', 'fixed', 'commission_bps', 'commission_fixed'];
+const feeSides = ['buy', 'sell'];
 
 function feeNum(v) {
   const n = parseFloat(v);
   return Number.isFinite(n) ? n : 0;
 }
 
+function emptySideFee(rateBps) {
+  return { rate_bps: rateBps, fixed: 0, commission_bps: 0, commission_fixed: 0 };
+}
+
+function normalizeVenueFee(f, fallback) {
+  f = f || {};
+  if (f.buy || f.sell) {
+    return { buy: Object.assign(emptySideFee(fallback), f.buy || {}), sell: Object.assign(emptySideFee(fallback), f.sell || {}) };
+  }
+  return { buy: Object.assign(emptySideFee(fallback), f), sell: Object.assign(emptySideFee(fallback), f) };
+}
+
 function renderFees(s) {
-  const fees = Object.assign({}, (s.config || {}).fees_by_venue || {});
+  const raw = Object.assign({}, (s.config || {}).fees_by_venue || {});
   const fallback = feeNum((s.config || {}).fee_bps_per_leg);
+  const fees = {};
+  for (const v of Object.keys(raw)) {
+    fees[v] = normalizeVenueFee(raw[v], fallback);
+  }
   for (const v of [s.venue_a, s.venue_b, document.getElementById('venue_a').value, document.getElementById('venue_b').value]) {
     if (v && !fees[v]) {
-      fees[v] = { rate_bps: fallback, fixed: 0, commission_bps: 0, commission_fixed: 0 };
+      fees[v] = { buy: emptySideFee(fallback), sell: emptySideFee(fallback) };
     }
   }
   const keys = Object.keys(fees).sort();
-  const head = '<thead><tr><th>venue fees</th>' + feeFields.map(k => '<th>'+k+'</th>').join('') + '</tr></thead>';
-  const body = '<tbody>' + keys.map(v => {
-    const f = fees[v] || {};
-    return '<tr data-fee-venue="'+esc(v)+'"><th>'+esc(v)+'</th>' +
+  const head = '<thead><tr><th>venue fees</th><th>side</th>' + feeFields.map(k => '<th>'+k+'</th>').join('') + '</tr></thead>';
+  const body = '<tbody>' + keys.flatMap(v => feeSides.map(side => {
+    const f = (fees[v] && fees[v][side]) || {};
+    return '<tr data-fee-venue="'+esc(v)+'" data-fee-side="'+side+'"><th>'+esc(v)+'</th><td>'+side+'</td>' +
       feeFields.map(k => '<td><input data-fee-field="'+k+'" type="number" step="0.01" value="'+feeNum(f[k])+'"/></td>').join('') +
       '</tr>';
-  }).join('') + '</tbody>';
+  })).join('') + '</tbody>';
   document.getElementById('fees').innerHTML = head + body;
 }
 
@@ -87,17 +104,19 @@ function overlayFromForm() {
   const fees = {};
   document.querySelectorAll('[data-fee-venue]').forEach(tr => {
     const v = tr.getAttribute('data-fee-venue');
+    const side = tr.getAttribute('data-fee-side') || 'buy';
+    if (!fees[v]) fees[v] = {};
     const o = {};
     tr.querySelectorAll('[data-fee-field]').forEach(el => {
       o[el.getAttribute('data-fee-field')] = feeNum(el.value);
     });
-    fees[v] = o;
+    fees[v][side] = o;
   });
   const fallback = feeNum(document.getElementById('fee_bps_per_leg').value);
   for (const id of ['venue_a', 'venue_b']) {
     const v = document.getElementById(id).value;
     if (v && !fees[v]) {
-      fees[v] = { rate_bps: fallback, fixed: 0, commission_bps: 0, commission_fixed: 0 };
+      fees[v] = { buy: emptySideFee(fallback), sell: emptySideFee(fallback) };
     }
   }
   return {

@@ -79,12 +79,17 @@ function parseMaxBookAgeMs(s) {
   }
 }
 
+function fmtSideFee(side, f) {
+  f = f || {};
+  return side+" rate_bps="+f.rate_bps+" fixed="+f.fixed+" commission_bps="+f.commission_bps+" commission_fixed="+f.commission_fixed;
+}
+
 function renderCfg(c) {
   if (!c) return;
   const fees = c.fees_by_venue || {};
   const feeLines = Object.keys(fees).map(v => {
-    const f = fees[v];
-    return v+": rate_bps="+f.rate_bps+" fixed="+f.fixed+" commission_bps="+f.commission_bps+" commission_fixed="+f.commission_fixed;
+    const f = fees[v] || {};
+    return v+": "+fmtSideFee("buy", f.buy)+" | "+fmtSideFee("sell", f.sell);
   }).join("; ") || "—";
   const budgets = c.budgets || {};
   const budLines = Object.keys(budgets).map(k => k+"="+budgets[k]).join(", ") || "—";

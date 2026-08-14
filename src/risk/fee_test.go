@@ -16,15 +16,15 @@ import (
 // Why: venues differ — some charge bps, some flat, some add commission
 // (spec/trading.md; miss-more must sum worst-case costs per leg).
 func TestVenueFee_RateFixedCommission(t *testing.T) {
-	rate := risk.VenueFee{RateBps: 5}
+	rate := risk.SideFee{RateBps: 5}
 	if got := rate.Cost(100, 1); math.Abs(got-0.05) > 1e-12 {
 		t.Fatalf("rate: got %v want 0.05", got)
 	}
-	fixed := risk.VenueFee{Fixed: 0.10}
+	fixed := risk.SideFee{Fixed: 0.10}
 	if got := fixed.Cost(100, 1); math.Abs(got-0.10) > 1e-12 {
 		t.Fatalf("fixed: got %v want 0.10", got)
 	}
-	mixed := risk.VenueFee{RateBps: 3.5, CommissionFixed: 0.01, CommissionBps: 1}
+	mixed := risk.SideFee{RateBps: 3.5, CommissionFixed: 0.01, CommissionBps: 1}
 	// 100*3.5/10000 + 0.01 + 100*1/10000 = 0.035 + 0.01 + 0.01 = 0.055
 	if got := mixed.Cost(100, 1); math.Abs(got-0.055) > 1e-12 {
 		t.Fatalf("mixed: got %v want 0.055", got)
@@ -35,39 +35,51 @@ func TestFeeSchedule_PerVenueAndDefault(t *testing.T) {
 	s := risk.FeeSchedule{
 		DefaultRateBps: 5,
 		ByVenue: map[exchange.VenueID]risk.VenueFee{
-			"hyperliquid": {RateBps: 3.5},
-			"grvt":        {Fixed: 0.02},
+			"hyperliquid": risk.SideFee{RateBps: 3.5}.Both(),
+			"grvt":        risk.SideFee{Fixed: 0.02}.Both(),
 		},
 	}
-	hl := s.Cost("hyperliquid", 100, 1)
+	hl := s.Cost("hyperliquid", exchange.SideBuy, 100, 1)
 	if math.Abs(hl-0.035) > 1e-12 {
 		t.Fatalf("hl: %v", hl)
 	}
-	grvt := s.Cost("grvt", 100, 1)
+	grvt := s.Cost("grvt", exchange.SideSell, 100, 1)
 	if math.Abs(grvt-0.02) > 1e-12 {
 		t.Fatalf("grvt fixed: %v", grvt)
 	}
-	other := s.Cost("unknown", 100, 1)
+	other := s.Cost("unknown", exchange.SideBuy, 100, 1)
 	if math.Abs(other-0.05) > 1e-12 {
 		t.Fatalf("default: %v", other)
 	}
 }
 
-// TestGate_UsesPerVenueFees ensures Evaluate costs each leg with its venue schedule.
+func TestFeeSchedule_BuyVsSell(t *testing.T) {
+	s := risk.FeeSchedule{ByVenue: map[exchange.VenueID]risk.VenueFee{
+		"hl": {Buy: risk.SideFee{RateBps: 10}, Sell: risk.SideFee{RateBps: 1}},
+	}}
+	buy := s.Cost("hl", exchange.SideBuy, 100, 1)
+	sell := s.Cost("hl", exchange.SideSell, 100, 1)
+	if math.Abs(buy-0.10) > 1e-12 || math.Abs(sell-0.01) > 1e-12 {
+		t.Fatalf("buy=%v sell=%v", buy, sell)
+	}
+}
+
+// TestGate_UsesPerVenueFees ensures Evaluate costs each leg with its venue+side schedule.
 func TestGate_UsesPerVenueFees(t *testing.T) {
-	// Gross edge 1.0; HL rate 5bps on 100 = 0.05; GRVT fixed 0.9 → net 1-0.05-0.9-0 = 0.05 OK
+	// Gross edge 1.0; HL buy 5bps on 100 = 0.05; GRVT sell fixed 0.9 → net 0.05 OK.
+	// Opposite sides are punitive so a wrong-side lookup would reject.
 	gOK := risk.NewGate(risk.Params{
 		Fees: risk.FeeSchedule{ByVenue: map[exchange.VenueID]risk.VenueFee{
-			"hyperliquid": {RateBps: 5},
-			"grvt":        {Fixed: 0.9},
+			"hyperliquid": {Buy: risk.SideFee{RateBps: 5}, Sell: risk.SideFee{RateBps: 1000}},
+			"grvt":        {Buy: risk.SideFee{Fixed: 100}, Sell: risk.SideFee{Fixed: 0.9}},
 		}},
 		LatencyPenalty: 0, PartialFillFactor: 1, MaxBookAge: 2 * time.Second, MaxInFlight: 4,
 	})
-	// Same but GRVT fixed 0.96 → net negative
+	// Same but GRVT sell fixed 0.96 → net negative
 	gBad := risk.NewGate(risk.Params{
 		Fees: risk.FeeSchedule{ByVenue: map[exchange.VenueID]risk.VenueFee{
-			"hyperliquid": {RateBps: 5},
-			"grvt":        {Fixed: 0.96},
+			"hyperliquid": {Buy: risk.SideFee{RateBps: 5}, Sell: risk.SideFee{RateBps: 1000}},
+			"grvt":        {Buy: risk.SideFee{Fixed: 100}, Sell: risk.SideFee{Fixed: 0.96}},
 		}},
 		LatencyPenalty: 0, PartialFillFactor: 1, MaxBookAge: 2 * time.Second, MaxInFlight: 4,
 	})

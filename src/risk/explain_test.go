@@ -12,8 +12,8 @@ import (
 func TestExplainDecision_GapAndFees(t *testing.T) {
 	p := risk.Params{
 		Fees: risk.FeeSchedule{ByVenue: map[exchange.VenueID]risk.VenueFee{
-			"hyperliquid": {RateBps: 1},
-			"grvt":        {RateBps: 2, CommissionFixed: 0.01},
+			"hyperliquid": risk.SideFee{RateBps: 1}.Both(),
+			"grvt":        risk.SideFee{RateBps: 2, CommissionFixed: 0.01}.Both(),
 		}},
 		LatencyPenalty:    0.05,
 		PartialFillFactor: 1,

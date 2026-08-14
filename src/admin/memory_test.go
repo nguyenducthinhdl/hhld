@@ -59,8 +59,8 @@ func TestRecordPaperDecision_ReconstructableArb(t *testing.T) {
 	fees := risk.FeeSchedule{
 		DefaultRateBps: 5,
 		ByVenue: map[exchange.VenueID]risk.VenueFee{
-			"hyperliquid": {RateBps: 5},
-			"grvt":        {RateBps: 5},
+			"hyperliquid": risk.SideFee{RateBps: 5}.Both(),
+			"grvt":        risk.SideFee{RateBps: 5}.Both(),
 		},
 	}
 	if err := admin.RecordPaperDecision(ctx, aud, tr, d, results, fees); err != nil {
@@ -151,4 +151,60 @@ func TestRecordPaperDecision_PartialLegStillAuditable(t *testing.T) {
 	if len(tr.Fills()) != 1 {
 		t.Fatalf("want 1 fill for successful leg, got %d", len(tr.Fills()))
 	}
+}
+
+func TestRecordPaperDecision_RejectsUnparseablePriceSize(t *testing.T) {
+	ctx := context.Background()
+	ack := exchange.OrderAck{OrderID: "o1", ClientOrderID: "c1", Status: "accepted", Time: time.Unix(1, 0).UTC()}
+	leg := strategy.Leg{
+		Venue: "hyperliquid", Symbol: "BTCUSD", Kind: exchange.KindPerp,
+		Side: exchange.SideBuy, Price: "100", Size: "1",
+	}
+	fees := risk.FeeSchedule{DefaultRateBps: 5}
+
+	t.Run("bad price", func(t *testing.T) {
+		tr := pnl.NewMemory()
+		aud := admin.NewMemory(tr)
+		bad := leg
+		bad.Price = "n/a"
+		err := admin.RecordPaperDecision(ctx, aud, tr, strategy.Decision{TraceID: "bad-px"}, []strategy.LegResult{{
+			Index: 0, Leg: bad, Ack: ack,
+		}}, fees)
+		if err == nil {
+			t.Fatal("want parse error")
+		}
+		if len(tr.Fills()) != 0 {
+			t.Fatalf("want no fill, got %+v", tr.Fills())
+		}
+	})
+	t.Run("bad size", func(t *testing.T) {
+		tr := pnl.NewMemory()
+		aud := admin.NewMemory(tr)
+		bad := leg
+		bad.Size = "oops"
+		err := admin.RecordPaperDecision(ctx, aud, tr, strategy.Decision{TraceID: "bad-sz"}, []strategy.LegResult{{
+			Index: 0, Leg: bad, Ack: ack,
+		}}, fees)
+		if err == nil {
+			t.Fatal("want parse error")
+		}
+		if len(tr.Fills()) != 0 {
+			t.Fatalf("want no fill, got %+v", tr.Fills())
+		}
+	})
+	t.Run("zero size", func(t *testing.T) {
+		tr := pnl.NewMemory()
+		aud := admin.NewMemory(tr)
+		bad := leg
+		bad.Size = "0"
+		err := admin.RecordPaperDecision(ctx, aud, tr, strategy.Decision{TraceID: "zero-sz"}, []strategy.LegResult{{
+			Index: 0, Leg: bad, Ack: ack,
+		}}, fees)
+		if err == nil {
+			t.Fatal("want positive size error")
+		}
+		if len(tr.Fills()) != 0 {
+			t.Fatalf("want no fill, got %+v", tr.Fills())
+		}
+	})
 }

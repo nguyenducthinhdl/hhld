@@ -73,8 +73,8 @@ func ExplainQuote(buyVenue, buyPrice, sellVenue, sellPrice, sizeStr string, p Pa
 	}
 	modeled := sz * pff
 	fees := p.FeeSchedule()
-	buyParts := fees.Parts(exchange.VenueID(buyVenue), buyPx, modeled)
-	sellParts := fees.Parts(exchange.VenueID(sellVenue), sellPx, modeled)
+	buyParts := fees.Parts(exchange.VenueID(buyVenue), exchange.SideBuy, buyPx, modeled)
+	sellParts := fees.Parts(exchange.VenueID(sellVenue), exchange.SideSell, sellPx, modeled)
 	fee := buyParts.Total + sellParts.Total
 	lat := p.LatencyPenalty * modeled
 	gross := (sellPx - buyPx) * modeled

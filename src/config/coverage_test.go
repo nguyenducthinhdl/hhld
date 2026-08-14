@@ -62,7 +62,7 @@ func TestValidate_MoreRejects(t *testing.T) {
 		{"empty fee venue", func(c *config.Config) { c.SymbolMap[0].Venues[""] = config.VenueSpec{SymbolName: "x"} }},
 		{"neg fee amount", func(c *config.Config) {
 			spec := c.SymbolMap[0].Venues["hyperliquid"]
-			spec.Fees.Fixed = -1
+			spec.Fees.Buy.Fixed = -1
 			c.SymbolMap[0].Venues["hyperliquid"] = spec
 		}},
 	}
@@ -96,5 +96,22 @@ func TestParseJSON_InvalidAndLoadMissing(t *testing.T) {
 	cfg, err := config.LoadJSON(path)
 	if err != nil || len(cfg.Symbols()) == 0 {
 		t.Fatalf("load: %+v err=%v", cfg, err)
+	}
+}
+
+func TestVenueFee_UnmarshalBuySellAndFlat(t *testing.T) {
+	var split config.VenueFee
+	if err := json.Unmarshal([]byte(`{"buy":{"rate_bps":1},"sell":{"rate_bps":3,"fixed":0.1}}`), &split); err != nil {
+		t.Fatal(err)
+	}
+	if split.Buy.RateBps != 1 || split.Sell.RateBps != 3 || split.Sell.Fixed != 0.1 {
+		t.Fatalf("split: %+v", split)
+	}
+	var flat config.VenueFee
+	if err := json.Unmarshal([]byte(`{"rate_bps":5,"commission_fixed":0.01}`), &flat); err != nil {
+		t.Fatal(err)
+	}
+	if flat.Buy.RateBps != 5 || flat.Sell.RateBps != 5 || flat.Buy.CommissionFixed != 0.01 || flat.Sell.CommissionFixed != 0.01 {
+		t.Fatalf("flat: %+v", flat)
 	}
 }

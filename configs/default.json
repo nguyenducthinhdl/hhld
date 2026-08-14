@@ -30,13 +30,27 @@
       "venues": {
         "hyperliquid": {
           "symbol_name": "BTC",
-          "fees": { "rate_bps": 1 },
-          "budget": "10000"
+          "fees": {
+            "sell": {
+              "rate_bps": 1
+            },
+            "buy": {
+              "rate_bps": 1
+            }
+          },
+          "budget": "5"
         },
         "grvt": {
           "symbol_name": "BTC_USDT_Perp",
-          "fees": { "rate_bps": 2, "commission_fixed": 0.01 },
-          "budget": "10000"
+          "fees": {
+            "sell": {
+              "rate_bps": 2
+            },
+            "buy": {
+              "rate_bps": 2
+            }
+          },
+          "budget": "5"
         }
       }
     }

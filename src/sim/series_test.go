@@ -80,8 +80,8 @@ func TestTrace_GenericVenuesAndIgnoreThird(t *testing.T) {
 		if e.Venues == nil {
 			e.Venues = map[string]config.VenueSpec{}
 		}
-		e.Venues["ex_a"] = config.VenueSpec{SymbolName: "BTC", Fees: config.VenueFee{RateBps: 1}}
-		e.Venues["ex_b"] = config.VenueSpec{SymbolName: "BTC", Fees: config.VenueFee{RateBps: 1}}
+		e.Venues["ex_a"] = config.VenueSpec{SymbolName: "BTC", Fees: config.SideFee{RateBps: 1}.Both()}
+		e.Venues["ex_b"] = config.VenueSpec{SymbolName: "BTC", Fees: config.SideFee{RateBps: 1}.Both()}
 	})
 	series, err := sim.Trace(context.Background(), in, cfg)
 	if err != nil {

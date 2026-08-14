@@ -30,8 +30,8 @@ func TestParseJSON_SymbolMapArray(t *testing.T) {
     "trading": { "strategy": "cross-venue-arb", "min_size": "0.01", "max_size": "2", "min_gap": 0.3, "kind": "perp" },
     "risk": { "fee_bps_per_leg": 5, "partial_fill_factor": 0.95, "max_book_age": "2s" },
     "venues": {
-      "hyperliquid": { "symbol_name": "BTC", "fees": { "rate_bps": 1 }, "budget": "10000" },
-      "grvt": { "symbol_name": "BTC_USDT_Perp", "fees": { "rate_bps": 2 }, "budget": "10000" }
+      "hyperliquid": { "symbol_name": "BTC", "fees": { "buy": { "rate_bps": 1 }, "sell": { "rate_bps": 1 } }, "budget": "10000" },
+      "grvt": { "symbol_name": "BTC_USDT_Perp", "fees": { "buy": { "rate_bps": 2 }, "sell": { "rate_bps": 2 } }, "budget": "10000" }
     }
   }]
 }`)
@@ -60,8 +60,8 @@ func TestParseJSON_PerVenueBudgetsAndInterval(t *testing.T) {
     "trading": { "strategy": "cross-venue-arb", "min_size": "0.01", "max_size": "0.5", "min_gap": 0.3, "kind": "perp", "order_interval": "2s" },
     "risk": { "fee_bps_per_leg": 5, "partial_fill_factor": 0.95, "max_book_age": "2s" },
     "venues": {
-      "hyperliquid": { "symbol_name": "BTC", "fees": { "rate_bps": 1 }, "budget": "5000" },
-      "grvt": { "symbol_name": "BTC_USDT_Perp", "fees": { "rate_bps": 2 }, "budget": "5000" }
+      "hyperliquid": { "symbol_name": "BTC", "fees": { "buy": { "rate_bps": 1 }, "sell": { "rate_bps": 1 } }, "budget": "5000" },
+      "grvt": { "symbol_name": "BTC_USDT_Perp", "fees": { "buy": { "rate_bps": 2 }, "sell": { "rate_bps": 2 } }, "budget": "5000" }
     }
   }]
 }`)

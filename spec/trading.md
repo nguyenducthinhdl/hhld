@@ -93,7 +93,7 @@ From `configs/default.json` / `config.Config`:
 - `symbol_map[].trading.kind` / `strategy` — instrument kind and strategy name  
 - `symbol_map[].risk` — `fee_bps_per_leg` fallback, latency penalty, partial-fill factor, max book age  
 - `symbol_map[].venues.<venue>.symbol_name` — venue-native id (e.g. BTCUSD → HL `BTC`, GRVT `BTC_USDT_Perp`)  
-- `symbol_map[].venues.<venue>.fees` — per-exchange fee model (`rate_bps`, `fixed`, `commission_bps`, `commission_fixed`; additive)  
+- `symbol_map[].venues.<venue>.fees` — per-exchange, per-side fee model (`buy` / `sell`, each with `rate_bps`, `fixed`, `commission_bps`, `commission_fixed`; additive)  
 - `symbol_map[].venues.<venue>.budget` — process-lifetime notional cap `sum(price×size)` for that venue+symbol (missing/`0` = unlimited)  
 
 `strategy.ArbConfigFrom(cfg)` maps each `symbol_map` row → `CrossVenueArb` sizes and min gaps.
@@ -121,7 +121,7 @@ Fee **schedules** are a pre-trade cost model for miss-more gating, not venue I/O
 
 | Layer                                   | Owns                                        | Example                                                  |
 | --------------------------------------- | ------------------------------------------- | -------------------------------------------------------- |
-| `risk.FeeSchedule` / `symbol_map[].venues.<venue>.fees` | Expected / worst-case cost **before** place | HL `rate_bps: 1`, GRVT `rate_bps` + `commission_fixed` |
+| `risk.FeeSchedule` / `symbol_map[].venues.<venue>.fees` | Expected / worst-case cost **before** place | HL buy/sell `rate_bps: 1`, GRVT buy/sell `rate_bps` + `commission_fixed` |
 | `exchange.Fill.Fee`                     | What was **actually** charged after a fill  | Live adapter reports venue fee on the fill               |
 
 
@@ -257,7 +257,7 @@ This matches [networking.md](networking.md): unknown/failed legs must be auditab
 For the same symbol, buy then sell inventory-matches:
 
 - Realized ≈ `(sell_price - buy_price) * size - fees`  
-- Fees use the same per-venue schedule as the gate (`risk.FeeSchedule` / `symbol_map[].venues.<venue>.fees`): rate (bps), fixed amount, and/or commission — summed per leg  
+- Fees use the same per-venue, per-side schedule as the gate (`risk.FeeSchedule` / `symbol_map[].venues.<venue>.fees.buy|sell`): rate (bps), fixed amount, and/or commission — summed per leg  
 - `admin.RecordPaperDecision(..., fees)` writes that fee onto each successful fill  
 - Audit can list orders by `TraceID` and compare to fills on the tracker
 

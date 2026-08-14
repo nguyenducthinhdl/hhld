@@ -10,7 +10,7 @@ import (
 
 // Params configures miss-more gates (fees, latency, staleness, concurrency, budgets).
 type Params struct {
-	// Fees is the per-venue trading fee schedule (rate / fixed / commission).
+	// Fees is the per-venue, per-side trading fee schedule (rate / fixed / commission).
 	Fees FeeSchedule
 	// FeeBpsPerLeg is legacy default rate when Fees.ByVenue has no entry for a venue.
 	// Prefer Fees.DefaultRateBps; this field stays for older call sites and is mirrored.
@@ -56,10 +56,8 @@ func ParamsFromConfig(cfg config.Config) Params {
 			vid := exchange.VenueID(venue)
 			if _, exists := fees.ByVenue[vid]; !exists {
 				fees.ByVenue[vid] = VenueFee{
-					RateBps:         spec.Fees.RateBps,
-					Fixed:           spec.Fees.Fixed,
-					CommissionBps:   spec.Fees.CommissionBps,
-					CommissionFixed: spec.Fees.CommissionFixed,
+					Buy:  sideFeeFrom(spec.Fees.Buy),
+					Sell: sideFeeFrom(spec.Fees.Sell),
 				}
 			}
 			if spec.Budget == "" {
@@ -117,4 +115,13 @@ func (p Params) FeeSchedule() FeeSchedule {
 		s.ByVenue = map[exchange.VenueID]VenueFee{}
 	}
 	return s
+}
+
+func sideFeeFrom(f config.SideFee) SideFee {
+	return SideFee{
+		RateBps:         f.RateBps,
+		Fixed:           f.Fixed,
+		CommissionBps:   f.CommissionBps,
+		CommissionFixed: f.CommissionFixed,
+	}
 }

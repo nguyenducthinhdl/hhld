@@ -258,7 +258,7 @@ func (g *Gate) edgeSurvives(d strategy.Decision) (ok bool, reason string, info m
 
 	gross := (sellPx - buyPx) * size
 	fees := g.params.FeeSchedule()
-	fee := fees.Cost(buy.Venue, buyPx, size) + fees.Cost(sell.Venue, sellPx, size)
+	fee := fees.Cost(buy.Venue, exchange.SideBuy, buyPx, size) + fees.Cost(sell.Venue, exchange.SideSell, sellPx, size)
 	net := gross - fee - g.params.LatencyPenalty*size
 	if net <= 0 {
 		lat := g.params.LatencyPenalty * size

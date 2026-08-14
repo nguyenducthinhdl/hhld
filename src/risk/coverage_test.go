@@ -20,7 +20,8 @@ func TestParamsFromConfig_DefaultsAndAlign(t *testing.T) {
 	if p.PartialFillFactor != 1 || p.MaxInFlight != 4 || p.MaxBookAge <= 0 {
 		t.Fatalf("defaults: %+v", p)
 	}
-	if p.Fees.ByVenue["hyperliquid"].RateBps != 1 {
+	hl := p.Fees.ByVenue["hyperliquid"]
+	if hl.Buy.RateBps != 1 || hl.Sell.RateBps != 1 {
 		t.Fatalf("venue fees: %+v", p.Fees)
 	}
 	g := risk.NewGate(p)
@@ -57,12 +58,12 @@ func TestLockKey_HedgeAndEmpty(t *testing.T) {
 
 func TestFeeSchedule_ZeroInputs(t *testing.T) {
 	s := risk.FeeSchedule{DefaultRateBps: 5, ByVenue: map[exchange.VenueID]risk.VenueFee{
-		"hl": {RateBps: 1, Fixed: 1},
+		"hl": risk.SideFee{RateBps: 1, Fixed: 1}.Both(),
 	}}
-	if s.Cost("hl", 0, 1) != 0 || s.Cost("hl", 1, 0) != 0 {
+	if s.Cost("hl", exchange.SideBuy, 0, 1) != 0 || s.Cost("hl", exchange.SideBuy, 1, 0) != 0 {
 		t.Fatal("zero price/size")
 	}
-	if (risk.VenueFee{RateBps: 5}).Cost(0, 1) != 0 {
+	if (risk.SideFee{RateBps: 5}).Cost(0, 1) != 0 {
 		t.Fatal("venue zero")
 	}
 }
