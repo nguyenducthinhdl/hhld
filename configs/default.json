@@ -1,4 +1,5 @@
 {
+  "env": "local",
   "venues": {
     "a": "hyperliquid",
     "b": "grvt"
@@ -16,8 +17,10 @@
       "trading": {
         "strategy": "cross-venue-arb",
         "kind": "perp",
-        "min_size": "0.000015",
-        "max_size": "0.00003",
+        "min_size": "0.0001",
+        "max_size": "0.0003",
+        "min_value": "10",
+        "max_value": "50",
         "min_gap": 0.3,
         "order_interval": "1s"
       },
@@ -30,27 +33,29 @@
       "venues": {
         "hyperliquid": {
           "symbol_name": "BTC",
+          "spot_symbol_name": "BTC",
           "fees": {
             "sell": {
-              "rate_bps": 1
+              "rate_bps": 4.5
             },
             "buy": {
-              "rate_bps": 1
+              "rate_bps": 4.5
             }
           },
-          "budget": "5"
+          "budget": "50"
         },
         "grvt": {
           "symbol_name": "BTC_USDT_Perp",
+          "spot_symbol_name": "BTC_USDT",
           "fees": {
             "sell": {
-              "rate_bps": 2
+              "rate_bps": 4.5
             },
             "buy": {
-              "rate_bps": 2
+              "rate_bps": 4.5
             }
           },
-          "budget": "5"
+          "budget": "50"
         }
       }
     }

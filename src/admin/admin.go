@@ -15,13 +15,16 @@ type OrderRecord struct {
 	ClientOrderID string
 	TraceID       string
 	HedgeID       string
+	Env           string // local | staging | testnet | prod | mainnet; empty → auditor default
 	Venue         exchange.VenueID
 	Symbol        exchange.Symbol
 	Kind          exchange.Kind
 	Side          exchange.Side
 	Price         string
 	Size          string
+	TIF           string // ioc default
 	Status        string
+	Error         string
 	Time          time.Time
 }
 
@@ -29,6 +32,7 @@ type OrderRecord struct {
 type Filter struct {
 	TraceID string
 	HedgeID string
+	Env     string
 	Venue   exchange.VenueID
 	Symbol  exchange.Symbol
 	From    time.Time

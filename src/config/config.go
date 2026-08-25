@@ -14,6 +14,9 @@ import (
 
 // Config is the root application configuration.
 type Config struct {
+	// Env pins this file to a venue ladder rung (local | staging | testnet | prod | mainnet).
+	// Empty is allowed for crawl/sim files.
+	Env string `json:"env,omitempty"`
 	// Venues names the primary pair used for same-kind arb (adapters map later).
 	Venues Venues `json:"venues"`
 	// Timeouts simulate / enforce latency budgets on book and order paths.
@@ -34,9 +37,10 @@ type SymbolEntry struct {
 
 // VenueSpec is one venue leg for a symbol.
 type VenueSpec struct {
-	SymbolName string   `json:"symbol_name"`
-	Fees       VenueFee `json:"fees"`
-	Budget     string   `json:"budget"`
+	SymbolName     string   `json:"symbol_name"`
+	SpotSymbolName string   `json:"spot_symbol_name,omitempty"`
+	Fees           VenueFee `json:"fees"`
+	Budget         string   `json:"budget"`
 }
 
 // Trading parameterizes strategy behavior for one symbol.
@@ -45,6 +49,8 @@ type Trading struct {
 	Kind          exchange.Kind `json:"kind"`
 	MinSize       string        `json:"min_size"`
 	MaxSize       string        `json:"max_size"`
+	MinValue      string        `json:"min_value,omitempty"` // USD notional floor (default "10")
+	MaxValue      string        `json:"max_value,omitempty"` // USD notional ceiling (default "50")
 	MinGap        float64       `json:"min_gap"`
 	OrderInterval *Duration     `json:"order_interval"`
 }
@@ -156,6 +162,7 @@ func (d Duration) MarshalJSON() ([]byte, error) {
 }
 
 // Default returns a solo-dev starting config (BTCUSD, HL + GRVT, paper arb).
+// ETHUSD lives in configs/craw-ethusd.json; SOLUSD in configs/craw-solusd.json; TRUMPUSD in configs/craw-trumpusd.json (not mixed into this default).
 func Default() Config {
 	return Config{
 		Venues: Venues{A: "hyperliquid", B: "grvt"},
@@ -163,7 +170,7 @@ func Default() Config {
 			Book:  Duration(25 * time.Millisecond),
 			Order: Duration(25 * time.Millisecond),
 		},
-		Risk: Risk{MaxInFlight: 4},
+		Risk:      Risk{MaxInFlight: 4},
 		SymbolMap: []SymbolEntry{defaultBTCUSD()},
 	}
 }
@@ -174,8 +181,10 @@ func defaultBTCUSD() SymbolEntry {
 		Trading: Trading{
 			Strategy:      "cross-venue-arb",
 			Kind:          exchange.KindPerp,
-			MinSize:       "0.000015",
-			MaxSize:       "0.00003",
+			MinSize:       "0.0001",
+			MaxSize:       "0.0003",
+			MinValue:      "10",
+			MaxValue:      "50",
 			MinGap:        0.3,
 			OrderInterval: durationPtr(time.Second),
 		},
@@ -186,8 +195,9 @@ func defaultBTCUSD() SymbolEntry {
 			MaxBookAge:        Duration(2 * time.Second),
 		},
 		Venues: map[string]VenueSpec{
-			"hyperliquid": {SymbolName: "BTC", Fees: SideFee{RateBps: 1}.Both(), Budget: "10000"},
-			"grvt":        {SymbolName: "BTC_USDT_Perp", Fees: SideFee{RateBps: 2, CommissionFixed: 0.01}.Both(), Budget: "10000"},
+			// Both venues: Tier-0 / Level-1 perp *taker* 0.045% = 4.5 bps. Arb crosses both books.
+			"hyperliquid": {SymbolName: "BTC", SpotSymbolName: "BTC", Fees: SideFee{RateBps: 4.5}.Both(), Budget: "10000"},
+			"grvt":        {SymbolName: "BTC_USDT_Perp", SpotSymbolName: "BTC_USDT", Fees: SideFee{RateBps: 4.5}.Both(), Budget: "10000"},
 		},
 	}
 }
@@ -280,6 +290,13 @@ func (c Config) Validate() error {
 	if len(c.SymbolMap) == 0 {
 		return fmt.Errorf("config: symbol_map must not be empty")
 	}
+	if c.Env != "" {
+		switch c.Env {
+		case "local", "staging", "testnet", "prod", "mainnet":
+		default:
+			return fmt.Errorf("config: unknown env %q", c.Env)
+		}
+	}
 	seen := map[exchange.Symbol]struct{}{}
 	for i, e := range c.SymbolMap {
 		if err := e.validate(i); err != nil {
@@ -318,6 +335,17 @@ func (e SymbolEntry) validate(i int) error {
 	}
 	if minSz > maxSz {
 		return fmt.Errorf("%s: trading.min_size must be <= trading.max_size", prefix)
+	}
+	minVal, err := strconv.ParseFloat(e.Trading.MinValue, 64)
+	if err != nil || minVal <= 0 {
+		return fmt.Errorf("%s: trading.min_value must be a positive number", prefix)
+	}
+	maxVal, err := strconv.ParseFloat(e.Trading.MaxValue, 64)
+	if err != nil || maxVal <= 0 {
+		return fmt.Errorf("%s: trading.max_value must be a positive number", prefix)
+	}
+	if minVal > maxVal {
+		return fmt.Errorf("%s: trading.min_value must be <= trading.max_value", prefix)
 	}
 	if e.Trading.MinGap < 0 {
 		return fmt.Errorf("%s: trading.min_gap must be >= 0", prefix)
@@ -360,6 +388,53 @@ func (c Config) NativeSymbol(venue exchange.VenueID, symbol exchange.Symbol) (st
 	}
 	spec, ok := entry.Venues[string(venue)]
 	if !ok || spec.SymbolName == "" {
+		return "", fmt.Errorf("config: no symbol_map[%s].venues[%s]", symbol, venue)
+	}
+	return spec.SymbolName, nil
+}
+
+// PinEnv errors when this file declares env and it disagrees with the process -env.
+// staging pairs with testnet; prod pairs with mainnet (one knob file per ladder rung).
+func (c Config) PinEnv(flagEnv string) error {
+	if c.Env == "" || flagEnv == "" {
+		return nil
+	}
+	if envCompatible(c.Env, flagEnv) {
+		return nil
+	}
+	return fmt.Errorf("config: file env %q does not match -env %q", c.Env, flagEnv)
+}
+
+func envCompatible(fileEnv, flagEnv string) bool {
+	if fileEnv == flagEnv {
+		return true
+	}
+	switch fileEnv {
+	case "staging", "testnet":
+		return flagEnv == "staging" || flagEnv == "testnet"
+	case "prod", "mainnet":
+		return flagEnv == "prod" || flagEnv == "mainnet"
+	}
+	return false
+}
+
+// NativeInstrument maps kind+symbol to the venue native id. Spot requires spot_symbol_name.
+func (c Config) NativeInstrument(venue exchange.VenueID, symbol exchange.Symbol, kind exchange.Kind) (string, error) {
+	entry, ok := c.Lookup(symbol)
+	if !ok {
+		return "", fmt.Errorf("config: no symbol_map for %s", symbol)
+	}
+	spec, ok := entry.Venues[string(venue)]
+	if !ok {
+		return "", fmt.Errorf("config: no symbol_map[%s].venues[%s]", symbol, venue)
+	}
+	if kind == exchange.KindSpot {
+		if spec.SpotSymbolName == "" {
+			return "", fmt.Errorf("config: no spot_symbol_name for %s on %s (no perp fallback)", symbol, venue)
+		}
+		return spec.SpotSymbolName, nil
+	}
+	if spec.SymbolName == "" {
 		return "", fmt.Errorf("config: no symbol_map[%s].venues[%s]", symbol, venue)
 	}
 	return spec.SymbolName, nil
@@ -447,6 +522,12 @@ func (c *Config) applyDefaults() {
 		}
 		if e.Trading.Kind == "" {
 			e.Trading.Kind = exchange.KindPerp
+		}
+		if e.Trading.MinValue == "" {
+			e.Trading.MinValue = "10"
+		}
+		if e.Trading.MaxValue == "" {
+			e.Trading.MaxValue = "50"
 		}
 	}
 }

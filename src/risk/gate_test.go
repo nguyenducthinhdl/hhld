@@ -285,7 +285,94 @@ func TestParamsFromConfig_BudgetsAndIntervals(t *testing.T) {
 	if p.OrderInterval["BTCUSD"] != time.Second {
 		t.Fatalf("interval: %+v", p.OrderInterval)
 	}
-	if p.MaxVolumeTrade["BTCUSD"] != 0.00003 {
+	if p.MaxVolumeTrade["BTCUSD"] != 0.0003 {
 		t.Fatalf("max vol: %+v", p.MaxVolumeTrade)
+	}
+	if p.MinNotional["BTCUSD"] != 10 || p.MaxNotional["BTCUSD"] != 50 {
+		t.Fatalf("notional: min=%v max=%v", p.MinNotional, p.MaxNotional)
+	}
+}
+
+func TestGate_NotionalBelowMin(t *testing.T) {
+	g := risk.NewGate(risk.Params{
+		FeeBpsPerLeg: 1, LatencyPenalty: 0, PartialFillFactor: 1,
+		MaxBookAge: 2 * time.Second, MaxInFlight: 4,
+		MinNotional: map[exchange.Symbol]float64{"BTCUSD": 10},
+		MaxNotional: map[exchange.Symbol]float64{"BTCUSD": 50},
+	})
+	now := time.Unix(1000, 0).UTC()
+	d := strategy.Decision{
+		TraceID: "t-ntl",
+		Legs: []strategy.Leg{
+			{Venue: "hyperliquid", Symbol: "BTCUSD", Kind: exchange.KindPerp, Side: exchange.SideBuy, Price: "100000", Size: "0.00005"},
+		},
+	}
+	v, err := g.Evaluate(context.Background(), d, risk.MarketView{Books: freshBooks(now), Now: now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v.OK || !strings.Contains(v.Reason, "notional_below_min") {
+		t.Fatalf("want notional_below_min, got %+v", v)
+	}
+}
+
+func TestGate_NotionalAboveMax(t *testing.T) {
+	g := risk.NewGate(risk.Params{
+		FeeBpsPerLeg: 1, LatencyPenalty: 0, PartialFillFactor: 1,
+		MaxBookAge: 2 * time.Second, MaxInFlight: 4,
+		MinNotional: map[exchange.Symbol]float64{"BTCUSD": 10},
+		MaxNotional: map[exchange.Symbol]float64{"BTCUSD": 50},
+	})
+	now := time.Unix(1000, 0).UTC()
+	d := strategy.Decision{
+		TraceID: "t-ntl",
+		Legs: []strategy.Leg{
+			{Venue: "hyperliquid", Symbol: "BTCUSD", Kind: exchange.KindPerp, Side: exchange.SideBuy, Price: "100000", Size: "0.001"},
+		},
+	}
+	v, err := g.Evaluate(context.Background(), d, risk.MarketView{Books: freshBooks(now), Now: now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v.OK || !strings.Contains(v.Reason, "notional_above_max") {
+		t.Fatalf("want notional_above_max, got %+v", v)
+	}
+}
+
+func TestGate_HaltBlocksEvaluateUntilResume(t *testing.T) {
+	g := risk.NewGate(risk.Params{
+		FeeBpsPerLeg: 5, LatencyPenalty: 0.05, PartialFillFactor: 1,
+		MaxBookAge: 2 * time.Second, MaxInFlight: 4,
+	})
+	now := time.Unix(1000, 0).UTC()
+	mkt := risk.MarketView{Books: freshBooks(now), Now: now}
+	g.Halt("BTCUSD", "unpaired:t-arb")
+	v, err := g.Evaluate(context.Background(), sampleArbDecision(), mkt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v.OK || !strings.Contains(v.Reason, "halted") {
+		t.Fatalf("want halted, got %+v", v)
+	}
+	halts := g.Halted()
+	if halts["BTCUSD"] != "unpaired:t-arb" {
+		t.Fatalf("halts: %+v", halts)
+	}
+	g.Resume("BTCUSD")
+	v, err = g.Evaluate(context.Background(), sampleArbDecision(), mkt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !v.OK {
+		t.Fatalf("want OK after resume, got %+v", v)
+	}
+	g.Halt("", "ignored")
+	g.Halt("ETHUSD", "")
+	if g.Halted()["ETHUSD"] != "halt" {
+		t.Fatalf("empty reason default: %+v", g.Halted())
+	}
+	g.Resume("ETHUSD")
+	if len(g.Halted()) != 0 {
+		t.Fatalf("want empty halts, got %+v", g.Halted())
 	}
 }

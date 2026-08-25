@@ -59,7 +59,7 @@ func TestCrossVenueArb_EmitsPaperDecisionOnGap(t *testing.T) {
 	if len(results) != 2 || results[0].Err != nil || results[1].Err != nil {
 		t.Fatalf("place results: %+v", results)
 	}
-	if results[0].Ack.Status != "accepted" || results[1].Ack.Status != "accepted" {
+	if results[0].Ack.Status != "filled" || results[1].Ack.Status != "filled" {
 		t.Fatalf("acks: %+v", results)
 	}
 }
@@ -98,7 +98,7 @@ func TestPlaceDecision_OneLegOrderTimeout(t *testing.T) {
 				t.Fatalf("leg %d err: %v", r.Index, r.Err)
 			}
 			timedOut++
-		} else if r.Ack.Status == "accepted" {
+		} else if r.Ack.Status == "filled" || r.Ack.Status == "accepted" {
 			succeeded++
 		}
 	}
@@ -164,7 +164,7 @@ func TestPlaceDecision_TwoLegsOrderDelaySuccess(t *testing.T) {
 		t.Fatalf("want 2 results, got %d", len(results))
 	}
 	for _, r := range results {
-		if r.Err != nil || r.Ack.Status != "accepted" {
+		if r.Err != nil || (r.Ack.Status != "filled" && r.Ack.Status != "accepted") {
 			t.Fatalf("leg %d: %+v", r.Index, r)
 		}
 	}

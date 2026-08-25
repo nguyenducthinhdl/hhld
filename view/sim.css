@@ -31,3 +31,11 @@ button { background:#1e3a5f; color:#e7ecf1; border:1px solid #3b82f6; border-rad
 .msg { color: #fca5a5; }
 .row { display:flex; gap:1rem; flex-wrap:wrap; align-items:center; margin: 0.35rem 0; font-size:0.85rem; }
 label { color: var(--muted); margin-right: 0.35rem; }
+.unit { color: var(--muted); font-size: 0.75rem; margin-left: 0.2rem; white-space: nowrap; }
+.chart-legend { color: var(--muted); font-size: 0.8rem; }
+.chart-legend .lg-gap { color: #fbbf24; }
+.chart-legend .lg-tradable { color: #c084fc; }
+.chart-legend .lg-pnl { color: #86efac; }
+.zoom-hint { color: var(--muted); font-size: 0.75rem; }
+#chart .brush .selection { fill: #7dd3fc; fill-opacity: 0.18; stroke: #38bdf8; }
+#chart .brush .overlay { cursor: crosshair; }

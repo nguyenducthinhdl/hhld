@@ -75,7 +75,7 @@ func TestRecordPaperDecision_ReconstructableArb(t *testing.T) {
 		t.Fatalf("want 2 orders, got %+v", orders)
 	}
 	for _, o := range orders {
-		if o.Status != "accepted" || o.OrderID == "" {
+		if (o.Status != "filled" && o.Status != "accepted") || o.OrderID == "" {
 			t.Fatalf("order: %+v", o)
 		}
 	}
@@ -136,17 +136,17 @@ func TestRecordPaperDecision_PartialLegStillAuditable(t *testing.T) {
 	if len(orders) != 2 {
 		t.Fatalf("want 2 order records, got %+v", orders)
 	}
-	var accepted, errored int
+	var accepted, failed int
 	for _, o := range orders {
 		switch o.Status {
-		case "accepted":
+		case "accepted", "filled":
 			accepted++
-		case "error":
-			errored++
+		case "error", "unknown":
+			failed++
 		}
 	}
-	if accepted != 1 || errored != 1 {
-		t.Fatalf("want 1 accepted + 1 error, got %+v", orders)
+	if accepted != 1 || failed != 1 {
+		t.Fatalf("want 1 accepted + 1 error/unknown, got %+v", orders)
 	}
 	if len(tr.Fills()) != 1 {
 		t.Fatalf("want 1 fill for successful leg, got %d", len(tr.Fills()))

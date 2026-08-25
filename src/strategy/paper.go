@@ -41,8 +41,9 @@ func PlaceDecision(ctx context.Context, venues Venues, d Decision) ([]LegResult,
 				}
 				return
 			}
+			cloid := exchange.NewClientOrderID()
 			ack, err := ex.PlaceOrder(ctx, exchange.OrderRequest{
-				ClientOrderID: fmt.Sprintf("%s-%d", d.TraceID, i),
+				ClientOrderID: cloid,
 				TraceID:       d.TraceID,
 				HedgeID:       d.HedgeID,
 				Symbol:        leg.Symbol,
@@ -50,6 +51,7 @@ func PlaceDecision(ctx context.Context, venues Venues, d Decision) ([]LegResult,
 				Side:          leg.Side,
 				Price:         leg.Price,
 				Size:          leg.Size,
+				TIF:           exchange.TIFIOC,
 			})
 			results[i] = LegResult{Index: i, Leg: leg, Ack: ack, Err: err}
 		}(i, leg)

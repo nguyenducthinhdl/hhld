@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/nguyenducthinhdl/hhld/src/exchange"
+	"github.com/nguyenducthinhdl/hhld/src/monitor"
 	"github.com/nguyenducthinhdl/hhld/view"
 )
 
@@ -19,6 +20,10 @@ type Handler struct {
 	Auditor Auditor
 	// Market, when set, serves GET /trading/market (books, gap, signal, config).
 	Market func(symbol exchange.Symbol) any
+	// Halted, when set, serves GET /trading/halts (P10 unpaired halt).
+	Halted func() map[exchange.Symbol]string
+	// Resume clears a symbol halt (POST /trading/halts/resume?symbol=).
+	Resume func(symbol exchange.Symbol)
 	// SimGet, when set, serves GET /sim (crawl replay series).
 	SimGet func() any
 	// SimRun, when set, handles POST /sim/run overlay JSON.
@@ -27,17 +32,25 @@ type Handler struct {
 
 // Register mounts:
 //
-//	GET /trading/pnl     — PnL snapshot (HTML or JSON)
-//	GET /trading/orders  — order list; query: trace_id, hedge_id, venue, symbol, format=json
-//	GET /trading/market  — dual books, gap, signal, config (when Market is set)
-//	GET /sim             — crawl replay series (when SimGet is set)
-//	POST /sim/run        — overlay knobs and re-run (when SimRun is set)
-//	GET /view/           — static HTML/CSS/JS from the view package
+//	GET /trading/pnl        — PnL snapshot (HTML or JSON)
+//	GET /trading/orders     — order list; query: trace_id, hedge_id, venue, symbol, format=json
+//	GET /trading/forensics  — InspectOrders JSON; query: trace_id (required)
+//	GET /trading/halts      — unpaired-leg halt map (when Halted is set)
+//	POST /trading/halts/resume — clear halt; query: symbol
+//	GET /health             — liveness JSON
+//	GET /trading/market     — dual books, gap, signal, config (when Market is set)
+//	GET /sim                — crawl replay series (when SimGet is set)
+//	POST /sim/run           — overlay knobs and re-run (when SimRun is set)
+//	GET /view/              — static HTML/CSS/JS from the view package
 func (h Handler) Register(mux *http.ServeMux) {
 	mux.Handle("GET /view/", http.StripPrefix("/view/", http.FileServer(http.FS(view.FS))))
 	mux.HandleFunc("GET /trading/pnl", h.handlePnL)
 	mux.HandleFunc("GET /trading/orders", h.handleOrders)
 	mux.HandleFunc("GET /trading/market", h.handleMarket)
+	mux.HandleFunc("GET /trading/forensics", h.handleForensics)
+	mux.HandleFunc("GET /trading/halts", h.handleHalts)
+	mux.HandleFunc("POST /trading/halts/resume", h.handleResume)
+	mux.HandleFunc("GET /health", h.handleHealth)
 	mux.HandleFunc("GET /sim", h.handleSim)
 	mux.HandleFunc("POST /sim/run", h.handleSimRun)
 }
@@ -109,6 +122,56 @@ func (h Handler) handleOrders(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (h Handler) handleForensics(w http.ResponseWriter, r *http.Request) {
+	if h.Auditor == nil {
+		http.Error(w, "admin: auditor not configured", http.StatusServiceUnavailable)
+		return
+	}
+	traceID := r.URL.Query().Get("trace_id")
+	if traceID == "" {
+		http.Error(w, "admin: trace_id required", http.StatusBadRequest)
+		return
+	}
+	orders, err := h.Auditor.ListOrders(r.Context(), Filter{TraceID: traceID})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	rep := monitor.InspectOrders(toOrderRows(orders))
+	writeJSON(w, map[string]any{"report": rep, "orders": orders, "count": len(orders)})
+}
+
+func (h Handler) handleHalts(w http.ResponseWriter, r *http.Request) {
+	if h.Halted == nil {
+		writeJSON(w, map[string]any{"halts": map[string]string{}})
+		return
+	}
+	raw := h.Halted()
+	halts := map[string]string{}
+	for k, v := range raw {
+		halts[string(k)] = v
+	}
+	writeJSON(w, map[string]any{"halts": halts})
+}
+
+func (h Handler) handleResume(w http.ResponseWriter, r *http.Request) {
+	if h.Resume == nil {
+		http.Error(w, "admin: resume not configured", http.StatusServiceUnavailable)
+		return
+	}
+	sym := exchange.Symbol(r.URL.Query().Get("symbol"))
+	if sym == "" {
+		http.Error(w, "admin: symbol required", http.StatusBadRequest)
+		return
+	}
+	h.Resume(sym)
+	writeJSON(w, map[string]any{"resumed": string(sym)})
+}
+
+func (h Handler) handleHealth(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, map[string]any{"ok": true, "service": "hhld"})
+}
+
 func (h Handler) handleMarket(w http.ResponseWriter, r *http.Request) {
 	if h.Market == nil {
 		http.Error(w, "admin: market view not configured", http.StatusServiceUnavailable)
@@ -171,4 +234,16 @@ func writeJSON(w http.ResponseWriter, v any) {
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
 	_ = enc.Encode(v)
+}
+
+func toOrderRows(orders []OrderRecord) []monitor.OrderRow {
+	out := make([]monitor.OrderRow, len(orders))
+	for i, o := range orders {
+		out[i] = monitor.OrderRow{
+			TraceID: o.TraceID, HedgeID: o.HedgeID, Status: o.Status,
+			Venue: o.Venue, Symbol: o.Symbol, Kind: o.Kind, Side: o.Side,
+			Price: o.Price, Size: o.Size,
+		}
+	}
+	return out
 }

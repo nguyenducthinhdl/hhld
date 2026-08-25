@@ -85,6 +85,13 @@ func (s *stubExchange) CancelOrder(ctx context.Context, orderID string) error {
 	return nil
 }
 
+func (s *stubExchange) GetOrder(ctx context.Context, id string) (exchange.OrderAck, error) {
+	if ack, ok := s.acks[id]; ok {
+		return ack, nil
+	}
+	return exchange.OrderAck{}, exchange.ErrOrderNotFound
+}
+
 func TestExchangeStub_SnapshotAndSubscribe(t *testing.T) {
 	ctx := context.Background()
 	ex := newStub("hyperliquid")

@@ -2,7 +2,7 @@
 
 How HHLD interacts with GRVT and how vendor payloads become HHLD `Book` / `Tick` / book deltas.
 
-**Doc version:** 2026-08-10 (manual WS commands)  
+**Doc version:** 2026-08-19 (P11 place-order plan)  
 **Docs:** [API docs](https://api-docs.grvt.io/)  
 **Code:** [`src/exchange/grvt`](../../src/exchange/grvt/)  
 **VenueID:** `grvt`
@@ -14,7 +14,7 @@ How HHLD interacts with GRVT and how vendor payloads become HHLD `Book` / `Tick`
 | Market data REST + WS (`v1.book.s`, `v1.book.d`, `v1.trade`) | Implemented (full field names) |
 | Place / Cancel | Returns `exchange.ErrReadOnly` |
 | Auth for market-data | Not required (public) |
-| Trading WS / cookie auth | Out of scope until live capital (`trades.*` hosts) |
+| Trading WS / cookie auth | Planned [P11](../roadmap/p11.md) (`trades.*` hosts) — not implemented |
 
 ## Endpoints
 
@@ -26,7 +26,7 @@ HHLD uses **full** (long field names), not lite.
 
 Defaults: `exchange.DefaultGRVTMainnet()`.
 
-Trading hosts (`trades.*`) and auth (`gravity` cookie + `X-Grvt-Account-Id`) are **not** used for P8/P9 reads.
+Trading hosts (`trades.*`) and auth (`gravity` cookie + `X-Grvt-Account-Id`) are **not** used for P8/P9 reads. P11 uses them for `create_order` (staging → testnet → prod).
 
 ## Manual WebSocket connect
 
@@ -71,7 +71,7 @@ printf '%s\n' '{"jsonrpc":"2.0","id":1,"stream":"v1.book.s","feed":["BTC_USDT_Pe
   | websocat -n wss://market-data.grvt.io/ws/full
 ```
 
-### Trading WS (not used by HHLD reads)
+### Trading WS (reads: unused; P11 place: planned)
 
 Private streams need auth — see [GRVT docs](https://api-docs.grvt.io/) (cookie + `X-Grvt-Account-Id`). Example shape only:
 
@@ -87,6 +87,11 @@ wscat -c "wss://trades.grvt.io/ws/full" \
 | HHLD `Symbol` | GRVT instrument (example) |
 |---------------|---------------------------|
 | `BTCUSD` | `BTC_USDT_Perp` |
+| `ETHUSD` | `ETH_USDT_Perp` |
+| `SOLUSD` | `SOL_USDT_Perp` |
+| `TRUMPUSD` | `TRUMP_USDT_Perp` |
+
+**ETHBTC is not listed.** Checked 2026-08-17: `POST full/v1/all_instruments` (`is_active: true`) returns `ETH_USDT_Perp` (quote USDT) and no `ETH_BTC_Perp` (or other ETH/BTC perp). Skip ETHBTC crawl. Do not pair GRVT `ETH_USDT_Perp` with a Hyperliquid ETH–BTC coin.
 
 Config: `symbol_map[].venues.grvt.symbol_name`. Adapter: `Config.Symbols[symbol] → instrument`.
 
@@ -251,12 +256,40 @@ v1.book.d  → BridgeGRVTDeltas   → Clear on session; Snapshot then DeltaEvent
 
 Strategy still sees full books from `BookStore` via `OnBooks` (deltas stay below Strategy).
 
-## Orders (not implemented live)
+## Trading fees (Risk schedule)
 
-Trading requires auth against `trades.*` (API key or wallet login → cookie + account id). Order DTOs are richer than HHLD `OrderRequest` today. See [p9.md](../roadmap/p9.md). Adapter place/cancel → `ErrReadOnly`.
+The table below is **perps only** because V1 is **same-kind** arb: Hyperliquid’s traded instrument is a perpetual, config `trading.kind` is `perp`, and GRVT’s mapped id is `BTC_USDT_Perp`. Spot maker/taker on GRVT (0.0600% / 0.0850% at Level 1) would apply to a different product — HL perp vs GRVT spot is basis, not the crypto-crypto arb path.
+
+GRVT charges **percent of notional**, not a flat per-fill commission. [Fee model](https://help.grvt.io/en/articles/9614699-how-does-grvt-s-fee-model-work) (active after 23 Mar 2026): Level 1 **perp taker** is **0.0450% = 4.5 bps**. Level 1 perp **maker** is a tiny rebate (~−0.0001%); treat as **0** in the maker-taker investigation until config allows `rate_bps < 0`. Paper arb is taker-taker today, so `venues.grvt.fees.buy|sell.rate_bps` is `4.5` on both sides.
+
+Maker vs taker is **how** the order meets the book (rest vs cross), not buy vs sell:
+
+```text
+taker-taker:  buy  HL   @ best ask  → lift → taker 4.5 bps
+              sell GRVT @ best bid  → hit  → taker 4.5 bps (not the maker rebate)
+maker-taker:  rest GRVT post-only   → maker ~0; hedge HL as taker 4.5 bps
+              (GRVT-as-maker needs GRVT ticks on the crawl tape; current feeds are books only)
+```
+
+Withdrawal fees are on-chain flat USDT and are **not** in the per-leg schedule.
+
+Raise `rate_bps` if the account is still Level 1 and you want extra conservatism; lower it only after a higher-volume tier is confirmed.
+
+## Orders (not implemented live — [P11](../roadmap/p11.md))
+
+Trading requires auth against `trades.*` (API key login → `gravity` cookie + `X-Grvt-Account-Id`) **and** an EIP-712 order signature. Adapter place/cancel → `ErrReadOnly` until P11.
+
+| Env | Auth | Trade REST | Order `chain_id` |
+|-----|------|------------|------------------|
+| staging | `https://edge.staging.gravitymarkets.io/auth/api_key/login` | `https://trades.staging.gravitymarkets.io` | `327` |
+| testnet | `https://edge.testnet.grvt.io/auth/api_key/login` | `https://trades.testnet.grvt.io` | `326` |
+| prod | `https://edge.grvt.io/auth/api_key/login` | `https://trades.grvt.io` | `325` |
+
+P11 first order: one leg, `perp` or `spot`, IOC, native instrument from config (`BTC_USDT_Perp` vs optional `spot_symbol_name`). Full contract + security gates: [p11.md](../roadmap/p11.md).
 
 ## Related
 
-- Config example: [`configs/default.json`](../../configs/default.json)
+- Config example: [`configs/default.json`](../../configs/default.json) (BTCUSD); ETHUSD: [`configs/craw-ethusd.json`](../../configs/craw-ethusd.json); SOLUSD: [`configs/craw-solusd.json`](../../configs/craw-solusd.json); TRUMPUSD: [`configs/craw-trumpusd.json`](../../configs/craw-trumpusd.json)
+- Maker-taker investigation: [trading.md](../trading.md#taker-taker-vs-maker-taker)
 - BookStore delta rules: [trading.md](../trading.md) (event-driven section)
 - Architecture: [architect.md](../architect.md)

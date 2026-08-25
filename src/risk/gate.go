@@ -26,6 +26,7 @@ type Gate struct {
 	held      map[string]struct{} // lock keys currently in a Risk+exec pipeline
 	spent     map[string]float64  // notional spent per venue/symbol
 	lastPlace map[exchange.Symbol]time.Time
+	halted    map[exchange.Symbol]string // P10: unpaired halt reason until Resume
 }
 
 // NewGate builds a Gate from Params.
@@ -50,6 +51,7 @@ func NewGate(p Params) *Gate {
 		held:      make(map[string]struct{}),
 		spent:     make(map[string]float64),
 		lastPlace: make(map[exchange.Symbol]time.Time),
+		halted:    make(map[exchange.Symbol]string),
 	}
 }
 
@@ -89,6 +91,13 @@ func (g *Gate) Evaluate(ctx context.Context, d strategy.Decision, mkt MarketView
 	}
 	if len(d.Legs) == 0 {
 		return Verdict{OK: false, Reason: "no legs"}, nil
+	}
+	if reason, halted := g.haltReason(d); halted {
+		sym := d.Legs[0].Symbol
+		return Verdict{OK: false, Reason: "halted symbol=" + string(sym) + " reason=" + reason, Info: map[string]interface{}{
+			"symbol": string(sym),
+			"reason": reason,
+		}}, nil
 	}
 	for _, leg := range d.Legs {
 		if strings.TrimSpace(leg.Price) == "" || strings.TrimSpace(leg.Size) == "" {
@@ -196,6 +205,12 @@ func (g *Gate) checkLimits(d strategy.Decision, now time.Time) (bool, string) {
 		}
 		key := config.BudgetKey(leg.Venue, leg.Symbol)
 		notional := px * sz
+		if min, ok := g.params.MinNotional[leg.Symbol]; ok && min > 0 && notional+1e-9 < min {
+			return false, fmt.Sprintf("notional_below_min symbol=%s notional=%g min=%g", leg.Symbol, notional, min)
+		}
+		if max, ok := g.params.MaxNotional[leg.Symbol]; ok && max > 0 && notional > max+1e-9 {
+			return false, fmt.Sprintf("notional_above_max symbol=%s notional=%g max=%g", leg.Symbol, notional, max)
+		}
 		if budget, ok := g.params.Budgets[key]; ok && budget > 0 {
 			if g.spent[key]+notional > budget+1e-9 {
 				return false, fmt.Sprintf("budget_exceeded key=%s spent=%g add=%g budget=%g", key, g.spent[key], notional, budget)
@@ -314,6 +329,48 @@ func findBook(books []exchange.Book, venue exchange.VenueID, sym exchange.Symbol
 		}
 	}
 	return exchange.Book{}, false
+}
+
+func (g *Gate) haltReason(d strategy.Decision) (string, bool) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	for _, leg := range d.Legs {
+		if reason, ok := g.halted[leg.Symbol]; ok {
+			return reason, true
+		}
+	}
+	return "", false
+}
+
+// Halt pauses new Decisions for symbol (unpaired-leg recovery). Existing in-flight Release still runs.
+func (g *Gate) Halt(symbol exchange.Symbol, reason string) {
+	if symbol == "" {
+		return
+	}
+	if reason == "" {
+		reason = "halt"
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.halted[symbol] = reason
+}
+
+// Resume clears a Halt so Evaluate may accept again after flatten/hedge.
+func (g *Gate) Resume(symbol exchange.Symbol) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	delete(g.halted, symbol)
+}
+
+// Halted is a copy of active halt reasons (operator / GET /trading/halts).
+func (g *Gate) Halted() map[exchange.Symbol]string {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	out := make(map[exchange.Symbol]string, len(g.halted))
+	for k, v := range g.halted {
+		out[k] = v
+	}
+	return out
 }
 
 // timeNow is replaceable in tests.

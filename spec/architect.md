@@ -23,6 +23,7 @@ HHLD is a **single-process** Go trading system. Market data enters from venues (
 │  │ Hyperliquid │              │ Runner                             │   │
 │  │ GRVT        │              │  both venues ready? → OnBooks      │   │
 │  └─────────────┘              │  → TryAcquire → Evaluate → Place   │   │
+│                               │  → Inspect / Halt if unpaired      │   │
 │                               │  → RecordPaperDecision             │   │
 │                               └───────────┬────────────────────────┘   │
 │                                           │                            │
@@ -43,10 +44,13 @@ Offline path (not on the hot loop): `crawl` → `warehouse` → `sim.Replay` use
 | `exchange` | Venue-agnostic `Book` / `Tick` / `PlaceOrder`; `fake`, `hyperliquid`, `grvt` |
 | `market` | `BookEvent`, `BookStore`, bounded `Bus`, `Runner`, bridges |
 | `strategy` | `OnBooks` → `Decision`; `PlaceDecision` places legs |
-| `risk` | `TryAcquire` + `Evaluate` (fees, stale, overload) |
-| `admin` / `pnl` | Order audit + realized PnL + market dashboard |
+| `risk` | `TryAcquire` + `Evaluate` (fees, stale, overload, unpaired halt) |
+| `monitor` | Place forensics, unknown-ack reconcile, flatten plan (P10) |
+| `admin` / `pnl` | Order audit + realized PnL + market dashboard + `/health` / `/trading/forensics` |
+| `ledger` (P11) | SQLite `hhld-ledger.db` — fills source of truth ([ledger.md](ledger.md)); warehouse is not used for PnL |
 | `view` | HTML/CSS/JS for `/trading/*` and `/sim` (static `/view/`) |
 | `viz` | Snapshot builders (gap, signal, config) for `/trading/market` |
+| `paperlive` | Live HL+GRVT books + fake place (P9 `-paper-live`) |
 | `sim` | Backtest replay + crawl series for `/sim` |
 | `warehouse` / `crawl` | Offline data + live NDJSON feed |
 
@@ -59,6 +63,9 @@ Each live venue is a **read-first** adapter behind `exchange.Exchange`.
 ```text
 Config.symbol_map[]
   BTCUSD.venues.<id>.symbol_name → HL coin "BTC", GRVT "BTC_USDT_Perp"
+  ETHUSD (configs/craw-ethusd.json).venues.<id>.symbol_name → HL coin "ETH", GRVT "ETH_USDT_Perp"
+  SOLUSD (configs/craw-solusd.json).venues.<id>.symbol_name → HL coin "SOL", GRVT "SOL_USDT_Perp"
+  TRUMPUSD (configs/craw-trumpusd.json).venues.<id>.symbol_name → HL coin "TRUMP", GRVT "TRUMP_USDT_Perp"
   BTCUSD.trading.max_size / order_interval → Strategy size + Risk cap
   BTCUSD.venues.<id>.budget → notional cap (key venue/symbol)
         │
@@ -88,7 +95,7 @@ Config.symbol_map[]
 
 REST `SnapshotBook` is available for cold start / diagnostics; the hot path is WS → Bus.
 
-Orders: adapters currently return `ErrReadOnly` for live HL/GRVT. Paper uses `fake` (or later paper fills on live books). Same `PlaceOrder` call site either way.
+Orders: adapters currently return `ErrReadOnly` for live HL/GRVT. Paper uses `fake` (or later paper fills on live books). Same `PlaceOrder` call site either way. P11 local trading uses that fake path with the live `OrderRequest` shape; signed venue writes are `cmd/hhld-place` only, not the paper Runner.
 
 Per-venue wire formats and parse tables: [exchange/hyperliquid.md](exchange/hyperliquid.md), [exchange/grvt.md](exchange/grvt.md).
 
@@ -188,8 +195,10 @@ Doctrine: **miss more** — skip the trade rather than take a bad or racing fill
 | Mode | Market data | PlaceOrder |
 |------|-------------|------------|
 | Sim / unit tests | Fake or warehouse replay | Fake acks |
-| P8.5 / P9 paper on live | HL + GRVT WS → BookStore | Paper/fake fills (no real capital) |
-| Later live | Same books | Real venue orders behind kill switches |
+| P8.5 / P9 paper on live | HL WS + GRVT REST poll → BookStore | Paper/fake fills (no real capital) |
+| P11 local | Fake books, or public HL+GRVT reads (`-trade-local -live-books`) | Fake `PlaceOrder` / `GetOrder` (same OrderRequest as venue) |
+| P11 venue smoke | Optional snapshot for TOB price | Signed one-leg order via `hhld-place` (staging/testnet, then gated prod) |
+| Later live arb | Same books as P9 | Real venue orders behind P11 gates + kill switches |
 
 The **control flow is identical**; only the `Exchange` implementation behind `PlaceOrder` changes.
 
@@ -209,13 +218,14 @@ Same Decision shape (`TraceID`, legs), same Risk, same audit reconstruction.
 - Strategy consuming raw deltas
 - Coalescing / debounce windows before evaluate
 - Multi-region / multi-process book consensus
-- Live capital until a later gated phase
+- Live capital until a later gated phase ([P11](roadmap/p11.md) is local trading + one-leg venue place; automatic venue arb stays later)
 
 ## Where to read next
 
 | Topic | Spec / code |
 |-------|-------------|
 | Paper arb economics | [trading.md](trading.md) |
+| Orders / fills / realized PnL schema | [ledger.md](ledger.md) |
 | Locks and bus bounds | [concurrency.md](concurrency.md) |
 | Timeouts / reconciling unknown acks | [networking.md](networking.md) |
 | Phase status | [roadmap/README.md](roadmap/README.md) |

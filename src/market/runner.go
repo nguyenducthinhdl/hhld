@@ -9,6 +9,7 @@ import (
 
 	"github.com/nguyenducthinhdl/hhld/src/admin"
 	"github.com/nguyenducthinhdl/hhld/src/exchange"
+	"github.com/nguyenducthinhdl/hhld/src/monitor"
 	"github.com/nguyenducthinhdl/hhld/src/pnl"
 	"github.com/nguyenducthinhdl/hhld/src/risk"
 	"github.com/nguyenducthinhdl/hhld/src/strategy"
@@ -22,6 +23,10 @@ type feeParams interface {
 	Params() risk.Params
 }
 
+type halter interface {
+	Halt(symbol exchange.Symbol, reason string)
+}
+
 // RunnerConfig wires dual venues and the trading pipeline.
 type RunnerConfig struct {
 	VenueA   exchange.VenueID
@@ -33,6 +38,8 @@ type RunnerConfig struct {
 	Venues   strategy.Venues // paper place map
 	Auditor  admin.Auditor
 	Tracker  pnl.Tracker
+	// OrderTimeout is the PlaceDecision deadline (unknown-ack if exceeded). Zero = no extra deadline.
+	OrderTimeout time.Duration
 	// Signals receives Decision / miss notifications for the market dashboard (optional).
 	Signals SignalNotifier
 }
@@ -176,7 +183,27 @@ func (r *Runner) execute(ctx context.Context, d strategy.Decision, mkt risk.Mark
 	if r.cfg.Signals != nil {
 		r.cfg.Signals.NotifyDecision(sym, d, estimateGrossGap(d))
 	}
-	results, _ := strategy.PlaceDecision(ctx, r.cfg.Venues, d)
+	seedPlaceBooks(r.cfg.Venues, mkt.Books)
+	placeCtx := ctx
+	if r.cfg.OrderTimeout > 0 {
+		var cancel context.CancelFunc
+		placeCtx, cancel = context.WithTimeout(ctx, r.cfg.OrderTimeout)
+		defer cancel()
+	}
+	results, _ := strategy.PlaceDecision(placeCtx, r.cfg.Venues, d)
+	results = monitor.ReconcileUnknown(ctx, r.cfg.Venues, results)
+	rep := monitor.Inspect(d, results)
+	monitor.Log(rep)
+	if r.cfg.Signals != nil && (rep.Halt || rep.Outcome != monitor.OutcomeComplete) {
+		r.cfg.Signals.NotifyMiss(sym, "forensics_"+rep.Outcome, map[string]any{
+			"trace_id": d.TraceID, "pnl": rep.PnL, "halt": rep.Halt,
+		})
+	}
+	if rep.Halt {
+		if h, ok := r.cfg.Risk.(halter); ok {
+			h.Halt(sym, rep.HaltReason)
+		}
+	}
 	fees := risk.FeeSchedule{}
 	if p, ok := r.cfg.Risk.(feeParams); ok {
 		fees = p.Params().FeeSchedule()
@@ -227,4 +254,20 @@ func maxBookTime(books []exchange.Book) time.Time {
 		}
 	}
 	return maxT
+}
+
+type bookSeeder interface {
+	SetBook(exchange.Book)
+}
+
+func seedPlaceBooks(venues strategy.Venues, books []exchange.Book) {
+	for _, b := range books {
+		ex, ok := venues[b.Venue]
+		if !ok {
+			continue
+		}
+		if s, ok := ex.(bookSeeder); ok {
+			s.SetBook(b)
+		}
+	}
 }

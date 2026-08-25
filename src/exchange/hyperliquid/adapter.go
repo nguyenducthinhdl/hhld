@@ -1,15 +1,19 @@
-// Package hyperliquid is a read-only Hyperliquid Exchange adapter (P8).
-// Books/ticks via REST POST /info and WS l2Book/trades. Orders return ErrReadOnly.
+// Package hyperliquid is a Hyperliquid Exchange adapter.
+// Books/ticks via REST POST /info and WS l2Book/trades.
+// Default New is read-only (ErrReadOnly on orders). NewLive enables signed writes.
 package hyperliquid
 
 import (
 	"bytes"
 	"context"
+	"crypto/ecdsa"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -33,15 +37,41 @@ type Config struct {
 	ReconnectWait time.Duration
 }
 
-// Adapter is a market-data-only Hyperliquid client.
+// Adapter is a Hyperliquid client (market data; optionally signed writes via NewLive).
 type Adapter struct {
-	cfg Config
+	cfg       Config
+	auth      *Auth
+	pk        *ecdsa.PrivateKey
+	meta      metaCache
+	lastNonce atomic.Int64
 }
 
-// New builds an adapter. Defaults mainnet URLs and KindPerp when unset.
+// New builds a read-only adapter. Defaults mainnet URLs and KindPerp when unset.
 func New(cfg Config) *Adapter {
+	return newAdapter(cfg, nil)
+}
+
+// NewLive builds a write-capable adapter. Callers must enforce HHLD_LIVE_ORDERS
+// before constructing (place path); this constructor only loads the key.
+func NewLive(cfg Config, auth Auth) (*Adapter, error) {
+	if strings.TrimSpace(auth.AccountAddress) == "" || strings.TrimSpace(auth.PrivateKeyHex) == "" {
+		return nil, fmt.Errorf("hyperliquid: Auth.AccountAddress and PrivateKeyHex required")
+	}
+	pk, err := parsePrivateKey(auth.PrivateKeyHex)
+	if err != nil {
+		return nil, err
+	}
+	a := newAdapter(cfg, &auth)
+	a.pk = pk
+	return a, nil
+}
+
+func newAdapter(cfg Config, auth *Auth) *Adapter {
 	if cfg.REST == "" || cfg.WS == "" {
 		ep := exchange.DefaultHyperliquidMainnet()
+		if auth != nil && auth.Testnet {
+			ep = exchange.DefaultHyperliquidTestnet()
+		}
 		if cfg.REST == "" {
 			cfg.REST = ep.REST
 		}
@@ -64,7 +94,7 @@ func New(cfg Config) *Adapter {
 	if cfg.Symbols == nil {
 		cfg.Symbols = map[exchange.Symbol]string{}
 	}
-	return &Adapter{cfg: cfg}
+	return &Adapter{cfg: cfg, auth: auth}
 }
 
 func defaultDial(ctx context.Context, url string, header http.Header) (exchange.WSConn, error) {
@@ -77,6 +107,11 @@ func defaultDial(ctx context.Context, url string, header http.Header) (exchange.
 }
 
 func (a *Adapter) ID() exchange.VenueID { return venueID }
+
+// Endpoints returns the REST/WS hosts this adapter was constructed with.
+func (a *Adapter) Endpoints() exchange.AdapterEndpoints {
+	return exchange.AdapterEndpoints{REST: a.cfg.REST, WS: a.cfg.WS}
+}
 
 func (a *Adapter) coin(symbol exchange.Symbol) (string, error) {
 	c, ok := a.cfg.Symbols[symbol]
@@ -167,14 +202,6 @@ func (a *Adapter) SubscribeTicks(ctx context.Context, symbol exchange.Symbol, h 
 		}
 		return nil
 	})
-}
-
-func (a *Adapter) PlaceOrder(ctx context.Context, req exchange.OrderRequest) (exchange.OrderAck, error) {
-	return exchange.OrderAck{}, exchange.ErrReadOnly
-}
-
-func (a *Adapter) CancelOrder(ctx context.Context, orderID string) error {
-	return exchange.ErrReadOnly
 }
 
 type wsEnvelope struct {

@@ -54,10 +54,15 @@ func TestValidate_MoreRejects(t *testing.T) {
 		{"no min_size", func(c *config.Config) { c.SymbolMap[0].Trading.MinSize = "" }},
 		{"no max_size", func(c *config.Config) { c.SymbolMap[0].Trading.MaxSize = "" }},
 		{"min gt max", func(c *config.Config) { c.SymbolMap[0].Trading.MinSize, c.SymbolMap[0].Trading.MaxSize = "2", "1" }},
+		{"min_value gt max_value", func(c *config.Config) {
+			c.SymbolMap[0].Trading.MinValue, c.SymbolMap[0].Trading.MaxValue = "60", "50"
+		}},
+		{"bad min_value", func(c *config.Config) { c.SymbolMap[0].Trading.MinValue = "0" }},
 		{"neg gap", func(c *config.Config) { c.SymbolMap[0].Trading.MinGap = -1 }},
 		{"empty venue a", func(c *config.Config) { c.Venues.A = "" }},
 		{"bad fill factor", func(c *config.Config) { c.SymbolMap[0].Risk.PartialFillFactor = 1.5 }},
 		{"neg in flight", func(c *config.Config) { c.Risk.MaxInFlight = -1 }},
+		{"unknown env", func(c *config.Config) { c.Env = "lab" }},
 		{"neg fee bps", func(c *config.Config) { c.SymbolMap[0].Risk.FeeBpsPerLeg = -1 }},
 		{"empty fee venue", func(c *config.Config) { c.SymbolMap[0].Venues[""] = config.VenueSpec{SymbolName: "x"} }},
 		{"neg fee amount", func(c *config.Config) {

@@ -54,7 +54,7 @@ Market-data fan-in uses an **in-process** `market.Bus` only — **no RabbitMQ** 
 
 - Design for **one medium instance**: modest parallelism across independent keys, strict serial per key.
 - Book subscriptions stay streaming; the bottleneck to protect is **Risk + order placement**, not book fan-in.
-- Measure in-flight count, queue drops, Risk reject reasons (`overloaded`, `lock_busy`, `stale_book`) for P10.
+- Measure in-flight count, queue drops, Risk reject reasons (`overloaded`, `lock_busy`, `stale_book`, `halted`) via Runner miss signals and [P10](roadmap/p10.md) forensics (no separate metrics stack).
 
 ## Phase ownership
 
@@ -63,6 +63,8 @@ Market-data fan-in uses an **in-process** `market.Bus` only — **no RabbitMQ** 
 | Risk gates including overload / lock-busy as miss | [P4](roadmap/p4.md) |
 | Event bus + BookStore + Runner | [P8.5](roadmap/p85.md) |
 | Execution pipeline holding per-hedge order | [P3](roadmap/p3.md)–[P9](roadmap/p9.md) |
-| Metrics / tracing of drops and in-flight | [P10](roadmap/p10.md) |
+| Metrics / tracing of drops and in-flight | [P10](roadmap/p10.md) (forensics + halt; miss reasons on `/trading/market`) |
+| Live one-leg place (separate process) | [P11](roadmap/p11.md) |
+| Local trading loop (fake PlaceOrder) | [P11](roadmap/p11.md) |
 
 Related: networking fail-closed and unpaired-leg recovery in [networking.md](networking.md).

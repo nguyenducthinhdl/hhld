@@ -5,13 +5,15 @@ package fake
 import (
 	"context"
 	"fmt"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/nguyenducthinhdl/hhld/src/exchange"
 )
 
-// Ensure Fake implements exchange.Exchange.
+// Ensure Fake implements exchange.Exchange and P10 GetOrder reconcile.
 var _ exchange.Exchange = (*Exchange)(nil)
 
 // Exchange is a fake venue driven by SetBook / PushTick.
@@ -209,19 +211,109 @@ func (e *Exchange) PlaceOrder(ctx context.Context, req exchange.OrderRequest) (e
 	}
 	e.mu.Lock()
 	defer e.mu.Unlock()
+
+	if err := validateReq(req); err != nil {
+		return exchange.OrderAck{}, err
+	}
+	book, hasBook := e.books[req.Symbol]
+	fillPx, err := matchIOC(req, book, hasBook)
+	if err != nil {
+		return exchange.OrderAck{}, err
+	}
+
 	e.nextOrd++
 	id := fmt.Sprintf("%s-ord-%d", e.id, e.nextOrd)
+	cloid := req.ClientOrderID
+	if cloid == "" {
+		cloid = exchange.NewClientOrderID()
+	}
 	ack := exchange.OrderAck{
 		OrderID:       id,
-		ClientOrderID: req.ClientOrderID,
+		ClientOrderID: cloid,
 		TraceID:       req.TraceID,
 		HedgeID:       req.HedgeID,
 		Symbol:        req.Symbol,
-		Status:        "accepted",
+		Status:        "filled",
 		Time:          e.clock.Now(),
 	}
+	_ = fillPx
 	e.acks[id] = ack
+	e.acks[cloid] = ack
 	return ack, nil
+}
+
+func validateReq(req exchange.OrderRequest) error {
+	switch req.Kind {
+	case exchange.KindPerp, exchange.KindSpot, exchange.KindPrediction:
+	case "":
+		return fmt.Errorf("fake: kind required")
+	default:
+		return fmt.Errorf("fake: unknown kind %q", req.Kind)
+	}
+	if req.Symbol == "" {
+		return fmt.Errorf("fake: symbol required")
+	}
+	if req.Side != exchange.SideBuy && req.Side != exchange.SideSell {
+		return fmt.Errorf("fake: side required")
+	}
+	sz, err := strconv.ParseFloat(req.Size, 64)
+	if err != nil || sz <= 0 {
+		return fmt.Errorf("fake: bad size %q", req.Size)
+	}
+	return nil
+}
+
+// matchIOC returns the fill price. Empty Price needs a TOB. Explicit Price fills
+// at limit if it crosses TOB, or at limit if there is no book (paper legs).
+func matchIOC(req exchange.OrderRequest, book exchange.Book, hasBook bool) (string, error) {
+	if hasBook && book.Kind != "" && req.Kind != "" && book.Kind != req.Kind {
+		return "", fmt.Errorf("fake: kind mismatch book=%s req=%s", book.Kind, req.Kind)
+	}
+	if strings.TrimSpace(req.Price) == "" {
+		if !hasBook {
+			return "", fmt.Errorf("fake: no book for %s", req.Symbol)
+		}
+		tob, err := tobPrice(book, req.Side)
+		if err != nil {
+			return "", err
+		}
+		return tob, nil
+	}
+	px, err := strconv.ParseFloat(req.Price, 64)
+	if err != nil || px <= 0 {
+		return "", fmt.Errorf("fake: bad price %q", req.Price)
+	}
+	if !hasBook {
+		return req.Price, nil
+	}
+	tob, err := tobPrice(book, req.Side)
+	if err != nil {
+		return "", err
+	}
+	tobPx, err := strconv.ParseFloat(tob, 64)
+	if err != nil {
+		return "", fmt.Errorf("fake: bad tob %q", tob)
+	}
+	if req.Side == exchange.SideBuy && px+1e-12 < tobPx {
+		return "", fmt.Errorf("fake: ioc not marketable buy limit=%s ask=%s", req.Price, tob)
+	}
+	if req.Side == exchange.SideSell && px-1e-12 > tobPx {
+		return "", fmt.Errorf("fake: ioc not marketable sell limit=%s bid=%s", req.Price, tob)
+	}
+	return tob, nil
+}
+
+func tobPrice(book exchange.Book, side exchange.Side) (string, error) {
+	if side == exchange.SideBuy {
+		if len(book.Asks) == 0 || strings.TrimSpace(book.Asks[0].Price) == "" {
+			return "", fmt.Errorf("fake: empty ask")
+		}
+		return book.Asks[0].Price, nil
+	}
+	if len(book.Bids) == 0 || strings.TrimSpace(book.Bids[0].Price) == "" {
+		return "", fmt.Errorf("fake: empty bid")
+	}
+	return book.Bids[0].Price, nil
 }
 
 func (e *Exchange) CancelOrder(ctx context.Context, orderID string) error {
@@ -232,4 +324,14 @@ func (e *Exchange) CancelOrder(ctx context.Context, orderID string) error {
 	defer e.mu.Unlock()
 	delete(e.acks, orderID)
 	return nil
+}
+
+// GetOrder looks up a paper ack by order id or client order id (P10 reconcile).
+func (e *Exchange) GetOrder(_ context.Context, id string) (exchange.OrderAck, error) {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	if ack, ok := e.acks[id]; ok {
+		return ack, nil
+	}
+	return exchange.OrderAck{}, exchange.ErrOrderNotFound
 }

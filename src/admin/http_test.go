@@ -199,3 +199,94 @@ func TestHandler_SimJSONAndRun(t *testing.T) {
 		t.Fatalf("sim css: %d %s", recCSS.Code, recCSS.Body.String())
 	}
 }
+
+func TestHandler_ForensicsHealthHalts(t *testing.T) {
+	aud := admin.NewMemory(pnl.NewMemory())
+	_ = aud.RecordOrder(t.Context(), admin.OrderRecord{
+		OrderID: "ok-1", ClientOrderID: "c1", TraceID: "t-dash",
+		Venue: "grvt", Symbol: "BTCUSD", Kind: exchange.KindPerp,
+		Side: exchange.SideSell, Price: "101", Size: "1", Status: "accepted",
+		Time: time.Unix(1, 0).UTC(),
+	})
+	_ = aud.RecordOrder(t.Context(), admin.OrderRecord{
+		ClientOrderID: "c0", TraceID: "t-dash",
+		Venue: "hyperliquid", Symbol: "BTCUSD", Kind: exchange.KindPerp,
+		Side: exchange.SideBuy, Price: "100", Size: "1", Status: "error",
+		Time: time.Unix(1, 0).UTC(),
+	})
+
+	halts := map[exchange.Symbol]string{"BTCUSD": "unpaired:t-dash"}
+	resumed := ""
+	mux := http.NewServeMux()
+	admin.Handler{
+		Auditor: aud,
+		Halted:  func() map[exchange.Symbol]string { return halts },
+		Resume: func(sym exchange.Symbol) {
+			resumed = string(sym)
+			delete(halts, sym)
+		},
+	}.Register(mux)
+
+	req := httptest.NewRequest(http.MethodGet, "/trading/forensics?trace_id=t-dash", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("forensics %d %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"outcome"`) || !strings.Contains(rec.Body.String(), "unpaired") {
+		t.Fatalf("forensics body: %s", rec.Body.String())
+	}
+
+	reqBad := httptest.NewRequest(http.MethodGet, "/trading/forensics", nil)
+	recBad := httptest.NewRecorder()
+	mux.ServeHTTP(recBad, reqBad)
+	if recBad.Code != http.StatusBadRequest {
+		t.Fatalf("want 400, got %d", recBad.Code)
+	}
+
+	reqH := httptest.NewRequest(http.MethodGet, "/health", nil)
+	recH := httptest.NewRecorder()
+	mux.ServeHTTP(recH, reqH)
+	if recH.Code != http.StatusOK || !strings.Contains(recH.Body.String(), `"ok": true`) {
+		t.Fatalf("health: %d %s", recH.Code, recH.Body.String())
+	}
+
+	reqHalt := httptest.NewRequest(http.MethodGet, "/trading/halts", nil)
+	recHalt := httptest.NewRecorder()
+	mux.ServeHTTP(recHalt, reqHalt)
+	if recHalt.Code != http.StatusOK || !strings.Contains(recHalt.Body.String(), "unpaired:t-dash") {
+		t.Fatalf("halts: %s", recHalt.Body.String())
+	}
+
+	reqRes := httptest.NewRequest(http.MethodPost, "/trading/halts/resume?symbol=BTCUSD", nil)
+	recRes := httptest.NewRecorder()
+	mux.ServeHTTP(recRes, reqRes)
+	if recRes.Code != http.StatusOK || resumed != "BTCUSD" {
+		t.Fatalf("resume: %d %s resumed=%q", recRes.Code, recRes.Body.String(), resumed)
+	}
+}
+
+func TestHandler_ResumeRequiresSymbolAndHandler(t *testing.T) {
+	mux := http.NewServeMux()
+	admin.Handler{}.Register(mux)
+
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/trading/halts/resume?symbol=BTCUSD", nil))
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("want 503, got %d", rec.Code)
+	}
+
+	mux2 := http.NewServeMux()
+	admin.Handler{Resume: func(exchange.Symbol) {}}.Register(mux2)
+	rec2 := httptest.NewRecorder()
+	mux2.ServeHTTP(rec2, httptest.NewRequest(http.MethodPost, "/trading/halts/resume", nil))
+	if rec2.Code != http.StatusBadRequest {
+		t.Fatalf("want 400, got %d", rec2.Code)
+	}
+
+	rec3 := httptest.NewRecorder()
+	mux.ServeHTTP(rec3, httptest.NewRequest(http.MethodGet, "/trading/forensics?trace_id=x", nil))
+	if rec3.Code != http.StatusServiceUnavailable {
+		t.Fatalf("forensics nil auditor: %d", rec3.Code)
+	}
+}

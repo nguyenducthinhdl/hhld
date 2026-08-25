@@ -21,7 +21,7 @@ func TestParamsFromConfig_DefaultsAndAlign(t *testing.T) {
 		t.Fatalf("defaults: %+v", p)
 	}
 	hl := p.Fees.ByVenue["hyperliquid"]
-	if hl.Buy.RateBps != 1 || hl.Sell.RateBps != 1 {
+	if hl.Buy.RateBps != 4.5 || hl.Sell.RateBps != 4.5 {
 		t.Fatalf("venue fees: %+v", p.Fees)
 	}
 	g := risk.NewGate(p)

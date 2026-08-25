@@ -17,8 +17,9 @@ Track delivery of each phase from the constitution [roadmap](../roadmap.md).
 | [P7](p7.md) | Crawl and warehouse | done |
 | [P8](p8.md) | HL + GRVT read adapters | done |
 | [P8.5](p85.md) | Event-driven BookStore | done |
-| [P9](p9.md) | Paper on live feeds | pending |
+| [P9](p9.md) | Paper on live feeds | done |
 | [P9.5](p95.md) | Market visualization | done |
-| [P10](p10.md) | Monitoring and hardening | pending |
+| [P10](p10.md) | Monitoring and hardening | done |
+| [P11](p11.md) | Local + venue write adapters (create order) | pending |
 
-Later work (after P10) stays listed only in [../roadmap.md](../roadmap.md) until split out.
+Later work (after P11) stays listed only in [../roadmap.md](../roadmap.md) until split out.

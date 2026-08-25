@@ -7,6 +7,59 @@ import (
 	"github.com/nguyenducthinhdl/hhld/src/config"
 )
 
+func TestParseJSON_MinMaxValueDefaults(t *testing.T) {
+	raw := []byte(`{
+  "venues": { "a": "hyperliquid", "b": "grvt" },
+  "symbol_map": [{
+    "symbol": "BTCUSD",
+    "trading": { "strategy": "cross-venue-arb", "min_size": "0.01", "max_size": "2", "min_gap": 0.3, "kind": "perp" },
+    "risk": { "fee_bps_per_leg": 5, "partial_fill_factor": 0.95, "max_book_age": "2s" },
+    "venues": {
+      "hyperliquid": { "symbol_name": "BTC", "fees": { "buy": { "rate_bps": 1 }, "sell": { "rate_bps": 1 } }, "budget": "10000" },
+      "grvt": { "symbol_name": "BTC_USDT_Perp", "fees": { "buy": { "rate_bps": 2 }, "sell": { "rate_bps": 2 } }, "budget": "10000" }
+    }
+  }]
+}`)
+	cfg, err := config.ParseJSON(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tr := cfg.SymbolMap[0].Trading
+	if tr.MinValue != "10" || tr.MaxValue != "50" {
+		t.Fatalf("want default min_value=10 max_value=50, got %+v", tr)
+	}
+}
+
+func TestParseJSON_MinMaxValueExplicit(t *testing.T) {
+	raw := []byte(`{
+  "venues": { "a": "hyperliquid", "b": "grvt" },
+  "symbol_map": [{
+    "symbol": "BTCUSD",
+    "trading": { "strategy": "cross-venue-arb", "min_size": "0.01", "max_size": "2", "min_value": "12", "max_value": "40", "min_gap": 0.3, "kind": "perp" },
+    "risk": { "fee_bps_per_leg": 5, "partial_fill_factor": 0.95, "max_book_age": "2s" },
+    "venues": {
+      "hyperliquid": { "symbol_name": "BTC", "fees": { "buy": { "rate_bps": 1 }, "sell": { "rate_bps": 1 } }, "budget": "10000" },
+      "grvt": { "symbol_name": "BTC_USDT_Perp", "fees": { "buy": { "rate_bps": 2 }, "sell": { "rate_bps": 2 } }, "budget": "10000" }
+    }
+  }]
+}`)
+	cfg, err := config.ParseJSON(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tr := cfg.SymbolMap[0].Trading
+	if tr.MinValue != "12" || tr.MaxValue != "40" {
+		t.Fatalf("got %+v", tr)
+	}
+}
+
+func TestDefault_MinMaxValue(t *testing.T) {
+	tr := config.Default().SymbolMap[0].Trading
+	if tr.MinValue != "10" || tr.MaxValue != "50" {
+		t.Fatalf("%+v", tr)
+	}
+}
+
 func TestNativeSymbol_FromDefaultMap(t *testing.T) {
 	cfg := config.Default()
 	hl, err := cfg.NativeSymbol("hyperliquid", "BTCUSD")
@@ -19,6 +72,9 @@ func TestNativeSymbol_FromDefaultMap(t *testing.T) {
 	}
 	if _, err := cfg.NativeSymbol("hyperliquid", "NOPE"); err == nil {
 		t.Fatal("want missing symbol")
+	}
+	if _, err := cfg.NativeSymbol("hyperliquid", "ETHUSD"); err == nil {
+		t.Fatal("ETHUSD must not be on Default(); use configs/craw-ethusd.json")
 	}
 }
 

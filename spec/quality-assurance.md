@@ -49,7 +49,12 @@ Phase “done when” entries in [roadmap/](roadmap/) assume `go test ./...` pas
 | `[warehouse](../src/warehouse/)`                                                                                                                   | SQLite store                      | ≥ 80%            | pass         |
 | `[crawl](../src/crawl/)`                                                                                                                           | Sample / fake crawl stubs         | ≥ 80%            | pass         |
 | `[market](../src/market/)`                                                                                                                         | BookStore + Bus + Runner (P8.5)   | ≥ 80%            | pass         |
-| `src/` **total**                                                                                                                                   | Combined                          | **≥ 80%** (~88%) | pass         |
+| `[monitor](../src/monitor/)`                                                                                                                       | Forensics + unknown-ack (P10)     | ≥ 80%            | pass         |
+| `[paperlive](../src/paperlive/)`                                                                                                                   | Paper arb on live books (P9)      | ≥ 80%            | pass         |
+| `[ledger](../src/ledger/)`                                                                                                                         | Durable fills / PnL (wired in P11)| ≥ 80%            | pass         |
+| `[secrets](../src/secrets/)`                                                                                                                       | Env pin / refuse keys / kill      | ≥ 80%            | pass         |
+| `[place](../src/place/)`                                                                                                                           | Local one-leg place (P11)         | ≥ 80%            | pass         |
+| `src/` **total**                                                                                                                                   | Combined                          | **≥ 80%** (~80.5%) | pass         |
 
 
 Remaining gaps are usually hard-to-hit I/O or marshal failure branches — acceptable if the happy path and miss-more rejects are covered.
@@ -106,11 +111,21 @@ Merge blockers: each row must stay **pass**.
 | Delta before snapshot     | `[TestBookStore_DeltaBeforeSnapshotRejected](../src/market/store_test.go)`                           | Reject until snapshot for key                              | pass    |
 | Runner every update       | `[TestRunner_EvaluatesOnEachVenueUpdate](../src/market/runner_test.go)`                              | A-only miss; then both → OnBooks; B update → OnBooks again | pass    |
 | Runner respects Gate      | `[TestRunner_LockBusyUnderBurst](../src/market/runner_test.go)`                                      | Event flood still hits `lock_busy`                         | pass    |
+| Paper on live feeds       | `[TestStart_PaperPlacesOnLiveGap](../src/paperlive/paperlive_test.go)`                                | Fake live books → paper place → orders + PnL + admin URLs  | pass    |
+| Unpaired halt             | `[TestRunner_UnpairedLegHaltsSymbol](../src/market/runner_test.go)`, `[TestGate_HaltBlocksEvaluateUntilResume](../src/risk/gate_test.go)` | 1-leg fail → Halt; Evaluate misses until Resume            | pass    |
+| Unknown-ack reconcile     | `[TestReconcileUnknown_ResolvesViaGetOrder](../src/monitor/monitor_test.go)`                         | `GetOrder` by cloid; never retries PlaceOrder              | pass    |
+| Forensics HTTP            | `[TestHandler_ForensicsHealthHalts](../src/admin/http_test.go)`                                      | `/trading/forensics`, `/health`, `/trading/halts`          | pass    |
+| Ledger realizes from fills | `[TestSQLite_RestartKeepsRealized](../src/ledger/sqlite_test.go)`                                    | Restart rebuilds `positions_strategy.realized`; unique fill_id; env isolation | pass    |
 | Fake/HL snapshot bridge   | `[TestBridgeBooks_PublishesSnapshots](../src/market/bridge_test.go)`                                 | SubscribeBook → Snapshot events → store                    | pass    |
 | Fake delta bridge         | `[TestBridgeFakeDeltas_AppliesViaBus](../src/market/bridge_test.go)`                                 | PushDelta size `0` removes level via bus                   | pass    |
 | GRVT book.d bridge        | `[TestBridgeGRVTDeltas_ClearsAndApplies](../src/market/bridge_test.go)`                              | Clear on reconnect; snap+delta into store                  | pass    |
 | GRVT book.d WS            | `[TestAdapter_SubscribeBookDeltas](../src/exchange/grvt/adapter_test.go)`                            | Snapshot then delta on `v1.book.d`                         | pass    |
 | Live HL/GRVT tick/book WS | *(manual / P9)*                                                                                      | Mainnet WS smoke for one symbol per venue                  | pending |
+| Live one-leg PlaceOrder   | *(P11; httptest, no real keys)*                                                                      | `{kind, symbol, side, size}` → signed envelope; env pin    | pending |
+| Local PlaceOrder          | `[TestLocal_PlacesAndLedgers](../src/place/place_test.go)`                                           | `-env local` / `-trade-local` same request; no keys        | pass    |
+| Local refuse live keys    | `[TestRefuseLocal_LiveKey](../src/secrets/secrets_test.go)`, `[TestLocal_RefuseLiveKey](../src/place/place_test.go)` | `-env local` exits if venue secrets are in the environment | pass    |
+| Production dual-confirm   | *(P11)*                                                                                              | `mainnet`/`prod` refused without confirm + `HHLD_LIVE_ORDERS` | pending |
+| Kill switch               | `[TestKillEngaged](../src/secrets/secrets_test.go)`, `[TestLocal_Kill](../src/place/place_test.go)`  | `HHLD_KILL` refuses place; no secret in logs               | pass    |
 
 
 
@@ -135,6 +150,9 @@ Merge blockers: each row must stay **pass**.
 | Test case                                                               | Test meaning                                   | Status |
 | ----------------------------------------------------------------------- | ---------------------------------------------- | ------ |
 | `[TestDefault_Validate](../src/config/config_test.go)`                  | Default BTCUSD / HL+GRVT config validates      | pass   |
+| `[TestLoadJSON_CrawETHUSD](../src/config/config_test.go)`               | `configs/craw-ethusd.json` maps ETHUSD natives | pass   |
+| `[TestLoadJSON_CrawSOLUSD](../src/config/config_test.go)`               | `configs/craw-solusd.json` maps SOLUSD natives | pass   |
+| `[TestLoadJSON_CrawTRUMPUSD](../src/config/config_test.go)`             | `configs/craw-trumpusd.json` maps TRUMPUSD natives | pass   |
 | `[TestParseJSON_OverridesAndMultiSymbol](../src/config/config_test.go)` | JSON overrides size/gap/timeouts; multi-symbol | pass   |
 | `[TestLoadJSON_FromFile](../src/config/config_test.go)`                 | Load config from disk path                     | pass   |
 | `[TestLoadJSON_RepoDefault](../src/config/config_test.go)`              | `configs/default.json` loads and maps natives  | pass   |
@@ -168,10 +186,11 @@ Merge blockers: each row must stay **pass**.
 | `[TestWallClock_Now](../src/exchange/fake/coverage_test.go)`                            | WallClock returns wall time                       | pass    |
 | `[TestAdapter_SnapshotBook](../src/exchange/hyperliquid/adapter_test.go)` (HL)          | REST `l2Book` → normalized `Book`                 | pass    |
 | `[TestAdapter_SubscribeBookAndTicks](../src/exchange/hyperliquid/adapter_test.go)` (HL) | WS `l2Book` / `trades` via fake dial              | pass    |
-| `[TestAdapter_ReadOnlyOrders](../src/exchange/hyperliquid/adapter_test.go)` (HL)        | Place/Cancel → `ErrReadOnly`                      | pass    |
+| `[TestAdapter_ReadOnlyOrders](../src/exchange/hyperliquid/adapter_test.go)` (HL)        | Place/Cancel/GetOrder → `ErrReadOnly`             | pass    |
 | `[TestAdapter_SnapshotBook](../src/exchange/grvt/adapter_test.go)` (GRVT)               | REST `full/v1/book` → normalized `Book`           | pass    |
 | `[TestAdapter_SubscribeBookAndTicks](../src/exchange/grvt/adapter_test.go)` (GRVT)      | WS `v1.book.s` / `v1.trade` via fake dial         | pass    |
-| `[TestAdapter_ReadOnlyOrders](../src/exchange/grvt/adapter_test.go)` (GRVT)             | Place/Cancel → `ErrReadOnly`                      | pass    |
+| `[TestAdapter_ReadOnlyOrders](../src/exchange/grvt/adapter_test.go)` (GRVT)             | Place/Cancel/GetOrder → `ErrReadOnly`            | pass    |
+| Live signed PlaceOrder (HL/GRVT)                                                        | P11: IOC envelope, env pin, no real keys          | pending |
 | Live adapter book/tick smoke                                                            | HL/GRVT mainnet WS one-symbol check (manual / P9) | pending |
 
 
@@ -216,6 +235,7 @@ Merge blockers: each row must stay **pass**.
 | `[TestGate_RateLimited](../src/risk/gate_test.go)`                      | Per-symbol order_interval miss       | pass   |
 | `[TestGate_BudgetExceeded](../src/risk/gate_test.go)`                   | Notional budget miss                 | pass   |
 | `[TestGate_MaxVolumeExceeded](../src/risk/gate_test.go)`                | max_size defense                 | pass   |
+| `[TestGate_HaltBlocksEvaluateUntilResume](../src/risk/gate_test.go)`   | Halt rejects; Resume allows again | pass   |
 | `[TestParamsFromConfig_BudgetsAndIntervals](../src/risk/gate_test.go)`  | Config → budgets / interval / max vol | pass  |
 | `[TestVenueFee_RateFixedCommission](../src/risk/fee_test.go)`           | Rate, fixed, commission additive     | pass   |
 | `[TestExplainDecision_GapAndFees](../src/risk/explain_test.go)`         | Gap formula + per-leg fee breakdown  | pass   |
@@ -255,7 +275,8 @@ Merge blockers: each row must stay **pass**.
 | `[TestRecordPaperDecision_PartialLegStillAuditable](../src/admin/memory_test.go)` | 1-leg fail still auditable               | pass   |
 | `[TestRecordPaperDecision_RejectsUnparseablePriceSize](../src/admin/memory_test.go)` | Bad/zero price or size → no fill     | pass   |
 | `[TestHandler_TradingPnL](../src/admin/http_test.go)`                             | `/trading/pnl` JSON                      | pass   |
-| `[TestHandler_TradingOrders](../src/admin/http_test.go)`                          | `/trading/orders` JSON by TraceID        | pass   |
+| `[TestHandler_ForensicsHealthHalts](../src/admin/http_test.go)`                    | `/trading/forensics`, `/health`, halt/resume | pass   |
+| `[TestHandler_ResumeRequiresSymbolAndHandler](../src/admin/http_test.go)`          | Resume 503/400; forensics 503                    | pass   |
 | `[TestHandler_HTMLAcceptAndHedgeQuery](../src/admin/coverage_test.go)`            | HTML PnL/orders; Accept JSON; hedge_id   | pass   |
 | `[TestHandler_NilAuditor](../src/admin/coverage_test.go)`                         | Nil auditor → 503                        | pass   |
 | `[TestMemory_FiltersPnLByHedgeAndNilTracker](../src/admin/coverage_test.go)`      | Filters, PnLByHedge, nil tracker ctor    | pass   |
@@ -309,13 +330,58 @@ Merge blockers: each row must stay **pass**.
 | `[TestBookStore_SnapshotThenDelta](../src/market/store_test.go)`           | Size `0` removes level; merge by price            | pass   |
 | `[TestBookStore_DeltaBeforeSnapshotRejected](../src/market/store_test.go)` | Reject until snapshot for key                     | pass   |
 | `[TestRunner_EvaluatesOnEachVenueUpdate](../src/market/runner_test.go)`    | Peer miss then OnBooks on each side update        | pass   |
-| `[TestRunner_LockBusyUnderBurst](../src/market/runner_test.go)`            | Flood + held Gate → `lock_busy`                   | pass   |
+| `[TestRunner_UnpairedLegHaltsSymbol](../src/market/runner_test.go)`    | 1-leg reject → Halt; no further places    | pass   |
+| `[TestRunner_OneLegTimeoutHalts](../src/market/runner_test.go)`        | Order timeout → Halt                      | pass   |
 | `[TestBridgeBooks_PublishesSnapshots](../src/market/bridge_test.go)`       | Fake SetBook → Snapshot on bus                    | pass   |
 | `[TestBridgeFakeDeltas_AppliesViaBus](../src/market/bridge_test.go)`       | PushDelta → store via bus                         | pass   |
 | `[TestBridgeGRVTDeltas_ClearsAndApplies](../src/market/bridge_test.go)`    | book.d bridge Clears on reconnect then snap+delta | pass   |
 | `[TestBus_DropsWhenFull](../src/market/runner_test.go)`                    | Bounded queue drops under overload                | pass   |
 
 
+### Paper live (P9)
+
+
+| Test case                                                                  | Test meaning                                      | Status |
+| -------------------------------------------------------------------------- | ------------------------------------------------- | ------ |
+| `[TestStart_PaperPlacesOnLiveGap](../src/paperlive/paperlive_test.go)`     | Fake dual books → paper place → orders + PnL      | pass   |
+| `[TestStart_LogsMissingSeedSnapshot](../src/paperlive/paperlive_test.go)`  | Seed SnapshotBook miss is logged                  | pass   |
+| `[TestStart_RejectsMissingLiveVenue](../src/paperlive/paperlive_test.go)`  | Both live adapters required                       | pass   |
+| `[TestLiveAdapters_DefaultVenues](../src/paperlive/paperlive_test.go)`     | Constructs HL+GRVT adapters (no network)          | pass   |
+| `[TestStart_DefaultPaperAndAuditor](../src/paperlive/coverage_test.go)`    | Nil paper/auditor defaults; still places          | pass   |
+
+
+### Monitor (P10)
+
+
+| Test case                                                                  | Test meaning                                      | Status |
+| -------------------------------------------------------------------------- | ------------------------------------------------- | ------ |
+| `[TestInspect_UnpairedHaltAndFlatten](../src/monitor/monitor_test.go)`     | 1-leg fail → halt + flatten plan (not sent)       | pass   |
+| `[TestReconcileUnknown_ResolvesViaGetOrder](../src/monitor/monitor_test.go)` | Fake `GetOrder` clears unknown ack              | pass   |
+| `[TestReconcileUnknown_StaysUnknown](../src/monitor/monitor_test.go)`      | Missing order stays `ErrUnknownAck` (no retry)    | pass   |
+
+
+### Ledger (schema; wire in P11)
+
+
+| Test case                                                                  | Test meaning                                      | Status |
+| -------------------------------------------------------------------------- | ------------------------------------------------- | ------ |
+| `[TestSQLite_FillsRealizeAndDedupe](../src/ledger/sqlite_test.go)`         | Opposite fills realize; duplicate fill_id ignored | pass   |
+| `[TestSQLite_OrdersAndFilters](../src/ledger/sqlite_test.go)`              | Orders persist; env isolation                     | pass   |
+| `[TestSQLite_RestartKeepsRealized](../src/ledger/sqlite_test.go)`          | Close/reopen keeps strategy realized              | pass   |
+
+
+### Secrets / local place (P11 local rung)
+
+
+| Test case                                                                  | Test meaning                                      | Status |
+| -------------------------------------------------------------------------- | ------------------------------------------------- | ------ |
+| `[TestRefuseLocal_LiveKey](../src/secrets/secrets_test.go)`                | Local env refuses live keys                       | pass   |
+| `[TestEnvPin](../src/secrets/secrets_test.go)`                             | `HHLD_VENUE_ENV` must match `-env`                | pass   |
+| `[TestKillEngaged](../src/secrets/secrets_test.go)`                        | `HHLD_KILL=1` or `hhld.kill`                      | pass   |
+| `[TestLocal_PlacesAndLedgers](../src/place/place_test.go)`                 | One-leg fake place → GetOrder → ledger            | pass   |
+| `[TestWire_LedgerTwoLegTrace](../src/paperlive/paperlive_test.go)`         | `-trade-local` path: two legs, one TraceID        | pass   |
+| `[TestMarketEndpoints_EnvPin](../src/exchange/adapter_test.go)`            | Staging → HL testnet + GRVT staging hosts         | pass   |
+| `[TestLoadJSON_EnvKnobFiles](../src/config/config_test.go)`                | `default-staging.json` / `default-production.json`| pass   |
 
 
 ## Fake vs live
@@ -336,13 +402,13 @@ Merge blockers: each row must stay **pass**.
 - [ ] New packages / non-trivial logic include tests (add a row to the catalog above)  
 - [ ] `src/` statement coverage stays **≥ 80%** (or justify a temporary dip in the PR)  
 - [ ] Spec / roadmap phase file updated when a phase finishes  
-- [ ] No secrets in fixtures; no live order placement in tests  
+- [ ] No secrets in fixtures; no live order placement in tests (P11 smokes are manual; unit tests use httptest + dummy keys)  
 
 
 
 ## Explicitly out of scope (for now)
 
-- Full E2E against mainnet with real capital  
+- Full E2E against mainnet with real capital (P11 production smoke is **manual**, operator-gated)  
 - Mutation testing / formal verification  
 - Enforcing coverage in CI as a hard red build (recommended later; bar is documented here first)
 

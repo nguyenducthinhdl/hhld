@@ -1,7 +1,7 @@
 {
-  "output": "data/crawl/btcusd-live.ndjson",
+  "output": "data/crawl/btcusd-live-180m.ndjson",
   "config": "configs/default.json",
-  "duration": "25m",
+  "duration": "180m",
   "feeds": [
     {
       "exchange": "hyperliquid",

@@ -23,6 +23,7 @@ Constitution for implementation choices. Optimize for a solo operator: speed of 
 ## Data warehouse
 
 - Small local store for v1 cost: **SQLite** and/or **Parquet on disk**.
+- Two files: warehouse (`books`/`ticks` for backtest) vs [trading ledger](ledger.md) (`fills` source of truth for realized PnL). Do not realize PnL from the warehouse schema.
 - Crawl jobs normalize ticks (and later OHLCV if needed) into the warehouse for backtest replay.
 - No managed data warehouse or cloud analytics in early phases.
 
@@ -58,4 +59,4 @@ Constitution for implementation choices. Optimize for a solo operator: speed of 
 
 - Kubernetes, multi-region, auto-scaling fleets
 - Research/ML training stack and notebooks (side project only)
-- Real capital wiring until roadmap opens that gate
+- Real capital wiring until [P11](roadmap/p11.md) opens that gate (one-leg place); automatic live arb stays later

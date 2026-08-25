@@ -50,3 +50,43 @@ func DefaultGRVTMainnet() AdapterEndpoints {
 func DefaultHTTPClient() *http.Client {
 	return &http.Client{Timeout: 10 * time.Second}
 }
+
+// DefaultGRVTStaging returns GRVT staging public market-data endpoints (full).
+func DefaultGRVTStaging() AdapterEndpoints {
+	return AdapterEndpoints{
+		REST: "https://market-data.staging.gravitymarkets.io",
+		WS:   "wss://market-data.staging.gravitymarkets.io/ws/full",
+	}
+}
+
+// DefaultGRVTTestnet returns GRVT testnet public market-data endpoints (full).
+func DefaultGRVTTestnet() AdapterEndpoints {
+	return AdapterEndpoints{
+		REST: "https://market-data.testnet.grvt.io",
+		WS:   "wss://market-data.testnet.grvt.io/ws/full",
+	}
+}
+
+// MarketEndpoints returns public book REST/WS for env+venue. Hosts are never read from JSON.
+func MarketEndpoints(env string, venue VenueID) AdapterEndpoints {
+	switch env {
+	case "staging":
+		if venue == "hyperliquid" {
+			return DefaultHyperliquidTestnet()
+		}
+		if venue == "grvt" {
+			return DefaultGRVTStaging()
+		}
+	case "testnet":
+		if venue == "hyperliquid" {
+			return DefaultHyperliquidTestnet()
+		}
+		if venue == "grvt" {
+			return DefaultGRVTTestnet()
+		}
+	}
+	if venue == "hyperliquid" {
+		return DefaultHyperliquidMainnet()
+	}
+	return DefaultGRVTMainnet()
+}

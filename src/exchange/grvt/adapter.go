@@ -92,6 +92,11 @@ func defaultDial(ctx context.Context, url string, header http.Header) (exchange.
 
 func (a *Adapter) ID() exchange.VenueID { return venueID }
 
+// Endpoints returns the REST/WS hosts this adapter was constructed with.
+func (a *Adapter) Endpoints() exchange.AdapterEndpoints {
+	return exchange.AdapterEndpoints{REST: a.cfg.REST, WS: a.cfg.WS}
+}
+
 func (a *Adapter) instrument(symbol exchange.Symbol) (string, error) {
 	inst, ok := a.cfg.Symbols[symbol]
 	if !ok || inst == "" {
@@ -240,6 +245,10 @@ func (a *Adapter) CancelOrder(ctx context.Context, orderID string) error {
 	return exchange.ErrReadOnly
 }
 
+func (a *Adapter) GetOrder(ctx context.Context, id string) (exchange.OrderAck, error) {
+	return exchange.OrderAck{}, exchange.ErrReadOnly
+}
+
 func (a *Adapter) runWS(ctx context.Context, subscribeMsg []byte, stream string, onSession func(), onFeed func(json.RawMessage) error) error {
 	for {
 		if err := ctx.Err(); err != nil {
@@ -302,34 +311,34 @@ func (a *Adapter) wsSession(ctx context.Context, subscribeMsg []byte, stream str
 			if r.err != nil {
 				return r.err
 			}
-		var env struct {
-			Stream   string          `json:"stream"`
-			Selector string          `json:"selector"`
-			Feed     json.RawMessage `json:"feed"`
-			Subs     []string        `json:"subs"`
-			Error    *struct {
-				Code    int    `json:"code"`
-				Message string `json:"message"`
-			} `json:"error"`
-		}
-		if err := json.Unmarshal(r.msg, &env); err != nil {
-			continue
-		}
-		if env.Error != nil {
-			return fmt.Errorf("grvt: rpc error %d: %s", env.Error.Code, env.Error.Message)
-		}
-		if len(env.Subs) > 0 && len(env.Feed) == 0 {
-			continue // subscribe ack
-		}
-		if env.Stream != "" && env.Stream != stream {
-			continue
-		}
-		if len(env.Feed) == 0 || string(env.Feed) == "null" || string(env.Feed) == "{}" {
-			continue
-		}
-		if err := onFeed(env.Feed); err != nil {
-			return err
-		}
+			var env struct {
+				Stream   string          `json:"stream"`
+				Selector string          `json:"selector"`
+				Feed     json.RawMessage `json:"feed"`
+				Subs     []string        `json:"subs"`
+				Error    *struct {
+					Code    int    `json:"code"`
+					Message string `json:"message"`
+				} `json:"error"`
+			}
+			if err := json.Unmarshal(r.msg, &env); err != nil {
+				continue
+			}
+			if env.Error != nil {
+				return fmt.Errorf("grvt: rpc error %d: %s", env.Error.Code, env.Error.Message)
+			}
+			if len(env.Subs) > 0 && len(env.Feed) == 0 {
+				continue // subscribe ack
+			}
+			if env.Stream != "" && env.Stream != stream {
+				continue
+			}
+			if len(env.Feed) == 0 || string(env.Feed) == "null" || string(env.Feed) == "{}" {
+				continue
+			}
+			if err := onFeed(env.Feed); err != nil {
+				return err
+			}
 		}
 	}
 }
@@ -432,12 +441,12 @@ func parseDeltaFeed(raw []byte, symbol exchange.Symbol, kind exchange.Kind) (del
 }
 
 type grvtTrade struct {
-	EventTime  string `json:"event_time"`
-	Instrument string `json:"instrument"`
-	Price      string `json:"price"`
-	Size       string `json:"size"`
-	Side       string `json:"side"`
-	IsTakerBuyer *bool `json:"is_taker_buyer"`
+	EventTime    string `json:"event_time"`
+	Instrument   string `json:"instrument"`
+	Price        string `json:"price"`
+	Size         string `json:"size"`
+	Side         string `json:"side"`
+	IsTakerBuyer *bool  `json:"is_taker_buyer"`
 }
 
 func parseTradeFeed(raw []byte, symbol exchange.Symbol, kind exchange.Kind) ([]exchange.Tick, error) {

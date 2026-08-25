@@ -1,11 +1,14 @@
 package market_test
 
 import (
+	"context"
+	"errors"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/nguyenducthinhdl/hhld/src/admin"
 	"github.com/nguyenducthinhdl/hhld/src/exchange"
 	"github.com/nguyenducthinhdl/hhld/src/exchange/fake"
 	"github.com/nguyenducthinhdl/hhld/src/market"
@@ -182,4 +185,139 @@ func TestBus_DropsWhenFull(t *testing.T) {
 		t.Fatal("want drops when full")
 	}
 	close(block)
+}
+
+type rejectPlace struct {
+	*fake.Exchange
+}
+
+func (r *rejectPlace) PlaceOrder(context.Context, exchange.OrderRequest) (exchange.OrderAck, error) {
+	return exchange.OrderAck{}, errors.New("injected reject")
+}
+
+func TestRunner_UnpairedLegHaltsSymbol(t *testing.T) {
+	store := market.NewBookStore()
+	bus := market.NewBus(64)
+	defer bus.Close()
+
+	dual := fake.NewDual("hyperliquid", "grvt", time.Unix(1, 0).UTC())
+	arb := strategy.NewCrossVenueArb(strategy.ArbConfig{
+		Symbols: []exchange.Symbol{"BTCUSD"}, Size: "1", MinGap: 0.3,
+	})
+	gate := risk.NewGate(risk.Params{
+		FeeBpsPerLeg: 1, LatencyPenalty: 0.01, PartialFillFactor: 1,
+		MaxBookAge: 10 * time.Second, MaxInFlight: 8,
+	})
+	tr := pnl.NewMemory()
+	aud := admin.NewMemory(tr)
+	run, err := market.NewRunner(market.RunnerConfig{
+		VenueA: "hyperliquid", VenueB: "grvt",
+		Symbols:  []exchange.Symbol{"BTCUSD"},
+		Store:    store,
+		Strategy: arb,
+		Risk:     gate,
+		Venues:   strategy.Venues{"hyperliquid": dual.A, "grvt": &rejectPlace{dual.B}},
+		Auditor:  aud,
+		Tracker:  tr,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	run.AttachBus(bus)
+
+	ts := time.Unix(1_700_000_000, 0).UTC()
+	bus.Publish(market.SnapshotEvent(exchange.Book{
+		Venue: "hyperliquid", Symbol: "BTCUSD", Kind: exchange.KindPerp, Time: ts,
+		Bids: []exchange.Level{{Price: "100.0", Size: "2"}},
+		Asks: []exchange.Level{{Price: "100.1", Size: "2"}},
+	}))
+	bus.Publish(market.SnapshotEvent(exchange.Book{
+		Venue: "grvt", Symbol: "BTCUSD", Kind: exchange.KindPerp, Time: ts,
+		Bids: []exchange.Level{{Price: "101.0", Size: "2"}},
+		Asks: []exchange.Level{{Price: "101.1", Size: "2"}},
+	}))
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, ok := gate.Halted()["BTCUSD"]; ok {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if reason, ok := gate.Halted()["BTCUSD"]; !ok || reason == "" {
+		t.Fatal("want BTCUSD halt after unpaired place")
+	}
+
+	orders, err := aud.ListOrders(context.Background(), admin.Filter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(orders) != 2 {
+		t.Fatalf("want 2 order rows, got %d", len(orders))
+	}
+
+	bus.Publish(market.SnapshotEvent(exchange.Book{
+		Venue: "grvt", Symbol: "BTCUSD", Kind: exchange.KindPerp, Time: ts.Add(time.Second),
+		Bids: []exchange.Level{{Price: "101.2", Size: "2"}},
+		Asks: []exchange.Level{{Price: "101.3", Size: "2"}},
+	}))
+	time.Sleep(50 * time.Millisecond)
+	orders2, err := aud.ListOrders(context.Background(), admin.Filter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(orders2) != len(orders) {
+		t.Fatalf("halted runner must not place again, before=%d after=%d", len(orders), len(orders2))
+	}
+}
+
+func TestRunner_OneLegTimeoutHalts(t *testing.T) {
+	store := market.NewBookStore()
+	bus := market.NewBus(64)
+	defer bus.Close()
+
+	dual := fake.NewDual("hyperliquid", "grvt", time.Unix(1, 0).UTC())
+	dual.B.SetOrderDelay(200 * time.Millisecond)
+	arb := strategy.NewCrossVenueArb(strategy.ArbConfig{
+		Symbols: []exchange.Symbol{"BTCUSD"}, Size: "1", MinGap: 0.3,
+	})
+	gate := risk.NewGate(risk.Params{
+		FeeBpsPerLeg: 1, LatencyPenalty: 0.01, PartialFillFactor: 1,
+		MaxBookAge: 10 * time.Second, MaxInFlight: 8,
+	})
+	run, err := market.NewRunner(market.RunnerConfig{
+		VenueA: "hyperliquid", VenueB: "grvt",
+		Symbols:      []exchange.Symbol{"BTCUSD"},
+		Store:        store,
+		Strategy:     arb,
+		Risk:         gate,
+		Venues:       strategy.Venues{"hyperliquid": dual.A, "grvt": dual.B},
+		Tracker:      pnl.NewMemory(),
+		OrderTimeout: 25 * time.Millisecond,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	run.AttachBus(bus)
+
+	ts := time.Unix(1_700_000_000, 0).UTC()
+	bus.Publish(market.SnapshotEvent(exchange.Book{
+		Venue: "hyperliquid", Symbol: "BTCUSD", Kind: exchange.KindPerp, Time: ts,
+		Bids: []exchange.Level{{Price: "100.0", Size: "2"}},
+		Asks: []exchange.Level{{Price: "100.1", Size: "2"}},
+	}))
+	bus.Publish(market.SnapshotEvent(exchange.Book{
+		Venue: "grvt", Symbol: "BTCUSD", Kind: exchange.KindPerp, Time: ts,
+		Bids: []exchange.Level{{Price: "101.0", Size: "2"}},
+		Asks: []exchange.Level{{Price: "101.1", Size: "2"}},
+	}))
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, ok := gate.Halted()["BTCUSD"]; ok {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatal("want halt after 1-leg order timeout")
 }

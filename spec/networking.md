@@ -58,7 +58,7 @@ Related: per-hedge serial Risk/execution and in-flight caps in [concurrency.md](
 
 ## Interface note
 
-P1 does not require extra methods for this doctrine. Later phases may add venue reconcile helpers (e.g. get order by id) on adapters when live/paper execution needs them. Risk and tracing phases own the gates and audit trail.
+P1 does not require extra methods for this doctrine. Paper [P10](roadmap/p10.md) reconciles unknown acks via optional `GetOrder` on `exchange/fake`. [P11](roadmap/p11.md) adds the same on live adapters.
 
 ## Phase ownership
 
@@ -68,3 +68,4 @@ P1 does not require extra methods for this doctrine. Later phases may add venue 
 | Persist orders/errors for audit | [P5](roadmap/p5.md) |
 | Live feed reconnect + contract smoke | [P8](roadmap/p8.md)–[P9](roadmap/p9.md) |
 | Mismatch/lost-order forensics, deploy hardening | [P10](roadmap/p10.md) |
+| Signed PlaceOrder / GetOrder / env pin / kill switch | [P11](roadmap/p11.md) |

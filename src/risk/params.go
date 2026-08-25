@@ -29,6 +29,9 @@ type Params struct {
 	OrderInterval map[exchange.Symbol]time.Duration
 	// MaxVolumeTrade caps leg size per symbol (from trading.max_size). Missing/0 = no cap check.
 	MaxVolumeTrade map[exchange.Symbol]float64
+	// MinNotional / MaxNotional are USD notional bounds per symbol (trading.min_value / max_value).
+	MinNotional map[exchange.Symbol]float64
+	MaxNotional map[exchange.Symbol]float64
 }
 
 // ParamsFromConfig maps global risk + per-symbol trading/risk/venues into Params.
@@ -37,6 +40,8 @@ func ParamsFromConfig(cfg config.Config) Params {
 	budgets := map[string]float64{}
 	intervals := make(map[exchange.Symbol]time.Duration, len(cfg.SymbolMap))
 	maxVol := make(map[exchange.Symbol]float64, len(cfg.SymbolMap))
+	minNtl := make(map[exchange.Symbol]float64, len(cfg.SymbolMap))
+	maxNtl := make(map[exchange.Symbol]float64, len(cfg.SymbolMap))
 	var feeDefault, lat, pff float64
 	var maxAge time.Duration
 	for i, entry := range cfg.SymbolMap {
@@ -51,6 +56,12 @@ func ParamsFromConfig(cfg config.Config) Params {
 		}
 		if mv, err := strconv.ParseFloat(entry.Trading.MaxSize, 64); err == nil && mv > 0 {
 			maxVol[entry.Symbol] = mv
+		}
+		if v, err := strconv.ParseFloat(entry.Trading.MinValue, 64); err == nil && v > 0 {
+			minNtl[entry.Symbol] = v
+		}
+		if v, err := strconv.ParseFloat(entry.Trading.MaxValue, 64); err == nil && v > 0 {
+			maxNtl[entry.Symbol] = v
 		}
 		for venue, spec := range entry.Venues {
 			vid := exchange.VenueID(venue)
@@ -81,6 +92,8 @@ func ParamsFromConfig(cfg config.Config) Params {
 		Budgets:           budgets,
 		OrderInterval:     intervals,
 		MaxVolumeTrade:    maxVol,
+		MinNotional:       minNtl,
+		MaxNotional:       maxNtl,
 	}
 	if p.PartialFillFactor <= 0 || p.PartialFillFactor > 1 {
 		p.PartialFillFactor = 1

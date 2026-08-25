@@ -4,6 +4,8 @@ package exchange
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"time"
 )
 
@@ -30,6 +32,9 @@ const (
 	KindSpot       Kind = "spot"
 	KindPrediction Kind = "prediction" // up/down, Yes/No, condition tokens
 )
+
+// Time-in-force. P11 smokes use IOC.
+const TIFIOC = "ioc"
 
 // Level is one price level on a book.
 type Level struct {
@@ -70,6 +75,17 @@ type OrderRequest struct {
 	Side          Side
 	Price         string
 	Size          string
+	TIF           string // ioc default
+	ReduceOnly    bool
+}
+
+// NewClientOrderID returns a 128-bit hex cloid (0x + 32 hex) for reconcile / HL.
+func NewClientOrderID() string {
+	var b [16]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return "0x" + hex.EncodeToString([]byte("hhld-fallback-cloid"))[:32]
+	}
+	return "0x" + hex.EncodeToString(b[:])
 }
 
 // OrderAck is the venue acknowledgement for a placed order.
@@ -96,6 +112,8 @@ type Fill struct {
 	Price         string
 	Size          string
 	Fee           string
+	FeeSource     string // modeled | venue; empty treated as modeled
+	FillID        string // venue trade id; empty → ledger synthesizes {cloid}:{seq}
 	Time          time.Time
 }
 
@@ -116,4 +134,5 @@ type Exchange interface {
 
 	PlaceOrder(ctx context.Context, req OrderRequest) (OrderAck, error)
 	CancelOrder(ctx context.Context, orderID string) error
+	GetOrder(ctx context.Context, id string) (OrderAck, error)
 }

@@ -17,18 +17,18 @@ func TestConfigView_FromDefault(t *testing.T) {
 	if cv.VenueA != "hyperliquid" || cv.VenueB != "grvt" {
 		t.Fatalf("%+v", cv)
 	}
-	if cv.EffectiveSize != "0.00003" || cv.MinGap != 0.3 {
+	if cv.EffectiveSize != "0.0003" || cv.MinGap != 0.3 {
 		t.Fatalf("%+v", cv)
 	}
-	if cv.MinSize != "0.000015" || cv.MaxSize != "0.00003" {
+	if cv.MinSize != "0.0001" || cv.MaxSize != "0.0003" {
 		t.Fatalf("size range: %+v", cv)
 	}
 	hl := cv.FeesByVenue["hyperliquid"]
-	if hl.Buy.RateBps != 1 || hl.Sell.RateBps != 1 {
+	if hl.Buy.RateBps != 4.5 || hl.Sell.RateBps != 4.5 {
 		t.Fatalf("fees: %+v", cv.FeesByVenue)
 	}
 	gr := cv.FeesByVenue["grvt"]
-	if gr.Buy.RateBps != 2 || gr.Sell.RateBps != 2 || gr.Buy.CommissionFixed != 0.01 || gr.Sell.CommissionFixed != 0.01 {
+	if gr.Buy.RateBps != 4.5 || gr.Sell.RateBps != 4.5 || gr.Buy.CommissionFixed != 0 || gr.Sell.CommissionFixed != 0 {
 		t.Fatalf("grvt fees: %+v", cv.FeesByVenue["grvt"])
 	}
 	if cv.Budgets["hyperliquid/BTCUSD"] != "10000" {

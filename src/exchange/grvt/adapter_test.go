@@ -66,6 +66,9 @@ func TestAdapter_ReadOnlyOrders(t *testing.T) {
 	if err := ad.CancelOrder(context.Background(), "x"); !errors.Is(err, exchange.ErrReadOnly) {
 		t.Fatalf("cancel: %v", err)
 	}
+	if _, err := ad.GetOrder(context.Background(), "x"); !errors.Is(err, exchange.ErrReadOnly) {
+		t.Fatalf("get: %v", err)
+	}
 }
 
 type fakeWS struct {

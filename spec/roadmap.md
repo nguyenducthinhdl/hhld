@@ -17,6 +17,7 @@ flowchart LR
   P8 --> P85[P8_5_event_bookstore]
   P85 --> P9[P9_paper_on_live_feeds]
   P9 --> P10[P10_monitoring_hardening]
+  P10 --> P11[P11_venue_place_order]
 ```
 
 ## Phases
@@ -140,6 +141,7 @@ flowchart LR
 
 ### P9 — Paper on live feeds
 
+- **Status:** [done](roadmap/p9.md)
 - **Goal**: Run arb + risk + PnL on live market data; still paper-only fills.
 - **Done when**: paper trading loop runs against HL + GRVT feeds with auditable orders.
 - **Skip**: real capital, production SLAs.
@@ -153,14 +155,24 @@ flowchart LR
 
 ### P10 — Monitoring and hardening
 
-- **Goal**: Trace mismatched/lost orders; deploy on one medium instance.
-- **Done when**: structured logs/trace IDs support order forensics; single-instance deploy documented.
-- **Skip**: Kubernetes, multi-region.
+- **Status:** [done](roadmap/p10.md)
+- **Goal**: Trace mismatched/lost orders; deploy on one medium instance ([p102.md](roadmap/p102.md)).
+- **Done when**: structured logs/trace IDs support order forensics; unknown-ack reconcile and one-leg-failure halt are documented/operable; single-instance deploy documented.
+- **Skip**: Kubernetes, multi-region; live `PlaceOrder` ([P11](roadmap/p11.md)).
 
-## Later (explicitly after P10)
+### P11 — Local + venue write adapters (create order)
 
+- **Status:** [pending](roadmap/p11.md)
+- **Goal**: Same `{kind, symbol, side, size}` `PlaceOrder` on **local** (fake matcher + optional two-leg `-trade-local`) → venue **staging/testnet** → gated **production**. Secrets, env pin, kill switch; `hhld-place` is the only binary that may load venue keys.
+- **Done when**: local one-leg and two-leg smokes work; both adapters place/cancel/reconcile; staging smokes documented; production requires dual confirm; no secrets in git/JSON/logs; local refuses live keys; [ledger](ledger.md) persists fills and rebuilds realized PnL after restart.
+- **Skip**: automatic **venue** live arb (Runner on staging/prod); Polymarket; withdrawals; admin place buttons.
+
+Contracts, env hosts, security, and ledger: [roadmap/p11.md](roadmap/p11.md), [ledger.md](ledger.md).
+
+## Later (explicitly after P11)
+
+- Automatic live arb (Runner `PlaceOrder` on real venues) behind the P11 gates + unpaired-leg playbook
 - Visualization polish (PnL over time / alpha charts)
-- Live trading gate (real orders) behind strict risk and kill switches
 - **Polymarket `Exchange` adapter** (read/paper first): map markets/outcomes (up/down, Yes/No) into the same book/tick model; verify API contract in-phase like P8
 - **Prediction ↔ crypto hedge strategy**: paper multi-leg trades (prediction up/down on Polymarket hedged with Hyperliquid or GRVT); shared hedge id; miss-more risk on both legs (fees, latency, leg failure / unpaired exposure)
 - Prediction strategy as a second method (forecasting; distinct from venue adapter and from hedge)

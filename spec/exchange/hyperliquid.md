@@ -2,7 +2,7 @@
 
 How HHLD interacts with Hyperliquid and how vendor payloads become HHLD `Book` / `Tick`.
 
-**Doc version:** 2026-08-10 (manual WS commands)  
+**Doc version:** 2026-08-25 (P11 HL testnet place)  
 **Docs:** [API overview](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/) · [WS subscriptions](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/websocket/subscriptions) · [Exchange (orders)](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/exchange-endpoint)  
 **Code:** [`src/exchange/hyperliquid`](../../src/exchange/hyperliquid/)  
 **VenueID:** `hyperliquid`
@@ -11,10 +11,11 @@ How HHLD interacts with Hyperliquid and how vendor payloads become HHLD `Book` /
 
 | Path | Status |
 |------|--------|
-| Market data (REST + WS books/trades) | Implemented (read-only adapter) |
-| Place / Cancel | Returns `exchange.ErrReadOnly` (paper uses `fake`) |
+| Market data (REST + WS books/trades) | Implemented (read-only `New`) |
+| Place / Cancel / GetOrder | Implemented on `NewLive` + Auth (testnet/staging via `hhld-place`) |
 | Auth for books | Not required (public) |
-| Signed live orders | Out of scope until live-capital phase |
+| Default `New(...)` orders | Still `exchange.ErrReadOnly` (paper-live safe) |
+| Mainnet / prod place | Not in this slice |
 
 ## Endpoints
 
@@ -74,6 +75,11 @@ HHLD symbols never appear on the wire. Config `symbol_map[].venues.hyperliquid.s
 | HHLD `Symbol` | HL coin (example) |
 |---------------|-------------------|
 | `BTCUSD` | `BTC` |
+| `ETHUSD` | `ETH` |
+| `SOLUSD` | `SOL` |
+| `TRUMPUSD` | `TRUMP` |
+
+**ETHBTC is not listed.** Checked 2026-08-17: perp `meta` universe has `ETH` but no `ETHBTC` / `ETH/BTC`; spot `spotMeta` has no ETH–BTC pair. Do not add an ETHBTC `symbol_map` row or crawl until both venues list the same-kind instrument. Do not arb HL `ETH` vs a GRVT ETH–BTC product.
 
 Adapter: `Config.Symbols[symbol] → coin`. Missing map → error.
 
@@ -167,9 +173,19 @@ Vendor `data` array element:
 | `time` (ms) | `Time` UTC |
 | | `Venue`, `Symbol`, `Kind` as for books |
 
-### Orders (not implemented live)
+### Orders (`NewLive` — testnet/staging via `hhld-place`)
 
-Live HL place needs signed `POST /exchange` with asset index, TIF (`Gtc`/`Ioc`/`Alo`), optional `cloid`, etc. See [exchange endpoint](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/exchange-endpoint) and [p9.md](../roadmap/p9.md) contract gaps. Adapter `PlaceOrder` / `CancelOrder` → `ErrReadOnly`.
+Signed `POST {REST}/exchange` with L1 msgpack action hash + EIP-712 phantom Agent (`source` `"b"` testnet / `"a"` mainnet, domain chainId **1337**). `meta` universe index for mapped perp coin; IOC + `cloid`. `GetOrder` → `POST /info` `orderStatus`. Default `New` stays `ErrReadOnly`. Gates: `HHLD_LIVE_ORDERS=1`, `HL_TESTNET_PRIVATE_KEY`, `HL_ACCOUNT_ADDRESS`. Spot / mainnet place: leftover. Full contract: [p11.md](../roadmap/p11.md).
+
+## Trading fees (Risk schedule)
+
+V1 paper arb **crosses** both books (buy ask / sell bid) → both legs are **takers**. [HL fee tiers](https://hyperliquid.gitbook.io/hyperliquid-docs/trading/fees): Tier 0 perp **taker** is **0.045% = 4.5 bps**. Perp **maker** is **0.015% = 1.5 bps** (used only in the maker-taker investigation in [trading.md](../trading.md); config `fees.buy|sell` today still stores taker 4.5 on both sides).
+
+```text
+taker-taker:  buy  HL @ best ask  → lift → taker 4.5 bps
+              sell HL @ best bid  → hit  → taker 4.5 bps
+maker-taker:  rest HL (post-only) → maker 1.5 bps; hedge other venue as taker
+```
 
 ## Bridge into HHLD event core
 
@@ -181,6 +197,6 @@ No delta path for HL.
 
 ## Related
 
-- Config example: [`configs/default.json`](../../configs/default.json)
-- Sufficiency vs HHLD `Exchange`: [p9.md](../roadmap/p9.md)
+- Config example: [`configs/default.json`](../../configs/default.json) (BTCUSD); ETHUSD: [`configs/craw-ethusd.json`](../../configs/craw-ethusd.json); SOLUSD: [`configs/craw-solusd.json`](../../configs/craw-solusd.json); TRUMPUSD: [`configs/craw-trumpusd.json`](../../configs/craw-trumpusd.json)
+- Maker-taker investigation: [trading.md](../trading.md#taker-taker-vs-maker-taker)
 - Event bus: [architect.md](../architect.md)

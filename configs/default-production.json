@@ -1,0 +1,63 @@
+{
+  "env": "prod",
+  "venues": {
+    "a": "hyperliquid",
+    "b": "grvt"
+  },
+  "timeouts": {
+    "book": "8s",
+    "order": "8s"
+  },
+  "risk": {
+    "max_in_flight": 1
+  },
+  "symbol_map": [
+    {
+      "symbol": "BTCUSD",
+      "trading": {
+        "strategy": "cross-venue-arb",
+        "kind": "perp",
+        "min_size": "0.0001",
+        "max_size": "0.00015",
+        "min_value": "10",
+        "max_value": "50",
+        "min_gap": 0.3,
+        "order_interval": "1s"
+      },
+      "risk": {
+        "fee_bps_per_leg": 5,
+        "latency_penalty": 0.05,
+        "partial_fill_factor": 0.95,
+        "max_book_age": "8s"
+      },
+      "venues": {
+        "hyperliquid": {
+          "symbol_name": "BTC",
+          "spot_symbol_name": "BTC",
+          "fees": {
+            "sell": {
+              "rate_bps": 4.5
+            },
+            "buy": {
+              "rate_bps": 4.5
+            }
+          },
+          "budget": "50"
+        },
+        "grvt": {
+          "symbol_name": "BTC_USDT_Perp",
+          "spot_symbol_name": "BTC_USDT",
+          "fees": {
+            "sell": {
+              "rate_bps": 4.5
+            },
+            "buy": {
+              "rate_bps": 4.5
+            }
+          },
+          "budget": "50"
+        }
+      }
+    }
+  ]
+}

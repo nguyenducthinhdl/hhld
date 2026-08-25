@@ -15,6 +15,12 @@
 // Methods: snapshot_book (REST poll), subscribe_book (WS), subscribe_ticks (WS).
 //
 //	go run ./cmd/hhld-feed -config configs/crawl.json
+//	go run ./cmd/hhld-feed -config configs/crawl-ethusd.json
+//	go run ./cmd/hhld-feed -config configs/crawl-solusd.json
+//	go run ./cmd/hhld-feed -config configs/crawl-trumpusd.json
+//	# ETHUSD knobs: configs/craw-ethusd.json
+//	# SOLUSD knobs: configs/craw-solusd.json
+//	# TRUMPUSD knobs: configs/craw-trumpusd.json
 //	go run ./cmd/hhld-feed -config configs/crawl.json -duration 30s -output /tmp/out.ndjson
 package main
 
@@ -66,7 +72,7 @@ func main() {
 	}
 
 	log.Printf("hhld-feed writing to %s (%d feeds)", cfg.Output, len(cfg.Feeds))
-	if err := (crawl.Live{Cfg: cfg}).Run(ctx); err != nil && err != context.Canceled {
+	if err := (crawl.Live{Cfg: cfg}).Run(ctx); err != nil && err != context.Canceled && err != context.DeadlineExceeded {
 		log.Fatal(err)
 	}
 	fmt.Printf("wrote %s\n", cfg.Output)

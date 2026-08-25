@@ -20,6 +20,8 @@ func TestTrace_SampleGapAndMinGap(t *testing.T) {
 		e.Risk.MaxBookAge = config.Duration(24 * time.Hour)
 		e.Trading.MinSize = "0.01"
 		e.Trading.MaxSize = "1"
+		e.Trading.MinValue = "1"
+		e.Trading.MaxValue = "10000"
 	})
 	series, err := sim.Trace(context.Background(), in, cfg)
 	if err != nil {

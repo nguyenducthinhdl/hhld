@@ -13,18 +13,13 @@ import (
 // Ensure Memory implements Tracker.
 var _ Tracker = (*Memory)(nil)
 
-type position struct {
-	qty     float64 // +long / -short
-	avgCost float64
-}
-
 // Memory is an in-memory Tracker: fills are kept for audit; realized PnL uses inventory matching.
 type Memory struct {
 	mu sync.RWMutex
 
 	fills    []exchange.Fill
 	byHedge  map[string][]exchange.Fill
-	pos      map[posKey]*position
+	pos      map[posKey]*Position
 	realized map[string]float64 // "" = global; else hedge id
 }
 
@@ -37,7 +32,7 @@ type posKey struct {
 func NewMemory() *Memory {
 	return &Memory{
 		byHedge:  make(map[string][]exchange.Fill),
-		pos:      make(map[posKey]*position),
+		pos:      make(map[posKey]*Position),
 		realized: make(map[string]float64),
 	}
 }
@@ -78,65 +73,13 @@ func (m *Memory) RecordFill(ctx context.Context, f exchange.Fill) error {
 		pk := posKey{hedge: hedge, symbol: f.Symbol}
 		p := m.pos[pk]
 		if p == nil {
-			p = &position{}
+			p = &Position{}
 			m.pos[pk] = p
 		}
-		m.realized[hedge] += applyFill(p, f.Side, px, sz) - fee
+		match, _ := ApplySide(p, f.Side, px, sz)
+		m.realized[hedge] += match - fee
 	}
 	return nil
-}
-
-func applyFill(p *position, side exchange.Side, px, sz float64) float64 {
-	switch side {
-	case exchange.SideBuy:
-		return applyBuy(p, px, sz)
-	case exchange.SideSell:
-		return applySell(p, px, sz)
-	default:
-		return 0
-	}
-}
-
-func applyBuy(p *position, px, sz float64) float64 {
-	realized := 0.0
-	if p.qty < 0 {
-		cover := minFloat(sz, -p.qty)
-		realized = (p.avgCost - px) * cover
-		p.qty += cover
-		sz -= cover
-		if p.qty == 0 {
-			p.avgCost = 0
-		}
-	}
-	if sz > 0 {
-		newQty := p.qty + sz
-		p.avgCost = (p.avgCost*p.qty + px*sz) / newQty
-		p.qty = newQty
-	}
-	return realized
-}
-
-func applySell(p *position, px, sz float64) float64 {
-	realized := 0.0
-	if p.qty > 0 {
-		closeQty := minFloat(sz, p.qty)
-		realized = (px - p.avgCost) * closeQty
-		p.qty -= closeQty
-		sz -= closeQty
-		if p.qty == 0 {
-			p.avgCost = 0
-		}
-	}
-	if sz > 0 {
-		curShort := 0.0
-		if p.qty < 0 {
-			curShort = -p.qty
-		}
-		newShort := curShort + sz
-		p.avgCost = (p.avgCost*curShort + px*sz) / newShort
-		p.qty = -newShort
-	}
-	return realized
 }
 
 func (m *Memory) Snapshot(ctx context.Context) (Snapshot, error) {
@@ -146,7 +89,7 @@ func (m *Memory) Snapshot(ctx context.Context) (Snapshot, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return Snapshot{
-		Realized:   formatFloat(m.realized[""]),
+		Realized:   FormatAmount(m.realized[""]),
 		Unrealized: "0",
 		AsOf:       time.Now().UTC(),
 	}, nil
@@ -159,7 +102,7 @@ func (m *Memory) SnapshotByHedge(ctx context.Context, hedgeID string) (Snapshot,
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return Snapshot{
-		Realized:   formatFloat(m.realized[hedgeID]),
+		Realized:   FormatAmount(m.realized[hedgeID]),
 		Unrealized: "0",
 		AsOf:       time.Now().UTC(),
 	}, nil
@@ -174,13 +117,3 @@ func (m *Memory) Fills() []exchange.Fill {
 	return out
 }
 
-func formatFloat(v float64) string {
-	return strconv.FormatFloat(v, 'f', 8, 64)
-}
-
-func minFloat(a, b float64) float64 {
-	if a < b {
-		return a
-	}
-	return b
-}

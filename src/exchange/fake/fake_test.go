@@ -119,7 +119,7 @@ func TestFake_PaperOrderUsesClock(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !ack.Time.Equal(time.Unix(50, 0).UTC()) || ack.Status != "accepted" {
+	if !ack.Time.Equal(time.Unix(50, 0).UTC()) || ack.Status != "filled" {
 		t.Fatalf("ack: %+v", ack)
 	}
 }
@@ -206,5 +206,109 @@ func TestFake_OrderDelayTimeout(t *testing.T) {
 	}
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("want DeadlineExceeded, got %v", err)
+	}
+}
+
+func TestFake_GetOrderByClientID(t *testing.T) {
+	ex := fake.New("hyperliquid", exchange.NewManualClock(time.Unix(1, 0).UTC()))
+	ack, err := ex.PlaceOrder(context.Background(), exchange.OrderRequest{
+		ClientOrderID: "cloid-1",
+		Symbol:        "BTCUSD",
+		Kind:          exchange.KindPerp,
+		Side:          exchange.SideBuy,
+		Price:         "100",
+		Size:          "1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := ex.GetOrder(context.Background(), "cloid-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.OrderID != ack.OrderID {
+		t.Fatalf("got %+v want %+v", got, ack)
+	}
+	_, err = ex.GetOrder(context.Background(), "missing")
+	if !errors.Is(err, exchange.ErrOrderNotFound) {
+		t.Fatalf("want ErrOrderNotFound, got %v", err)
+	}
+}
+
+func TestFake_IOCFillAtTOB(t *testing.T) {
+	ex := fake.New("hyperliquid", exchange.NewManualClock(time.Unix(1, 0).UTC()))
+	ex.SetBook(exchange.Book{
+		Symbol: "BTCUSD", Kind: exchange.KindPerp,
+		Bids: []exchange.Level{{Price: "99.9", Size: "1"}},
+		Asks: []exchange.Level{{Price: "100.1", Size: "1"}},
+	})
+	ack, err := ex.PlaceOrder(context.Background(), exchange.OrderRequest{
+		ClientOrderID: "c-tob", Symbol: "BTCUSD", Kind: exchange.KindPerp,
+		Side: exchange.SideBuy, Size: "1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ack.Status != "filled" {
+		t.Fatalf("ack %+v", ack)
+	}
+	got, err := ex.GetOrder(context.Background(), "c-tob")
+	if err != nil || got.OrderID != ack.OrderID {
+		t.Fatalf("get %+v %v", got, err)
+	}
+}
+
+func TestFake_IOCRejectsNoBookEmptyPrice(t *testing.T) {
+	ex := fake.New("grvt", nil)
+	_, err := ex.PlaceOrder(context.Background(), exchange.OrderRequest{
+		Symbol: "BTCUSD", Kind: exchange.KindPerp, Side: exchange.SideBuy, Size: "1",
+	})
+	if err == nil {
+		t.Fatal("want no book")
+	}
+}
+
+func TestFake_IOCRejectsUncrossable(t *testing.T) {
+	ex := fake.New("hyperliquid", nil)
+	ex.SetBook(exchange.Book{
+		Symbol: "BTCUSD", Kind: exchange.KindPerp,
+		Bids: []exchange.Level{{Price: "99", Size: "1"}},
+		Asks: []exchange.Level{{Price: "101", Size: "1"}},
+	})
+	_, err := ex.PlaceOrder(context.Background(), exchange.OrderRequest{
+		Symbol: "BTCUSD", Kind: exchange.KindPerp, Side: exchange.SideBuy, Price: "100", Size: "1",
+	})
+	if err == nil {
+		t.Fatal("want uncrossable")
+	}
+}
+
+func TestFake_KindMismatch(t *testing.T) {
+	ex := fake.New("hyperliquid", nil)
+	ex.SetBook(exchange.Book{
+		Symbol: "BTCUSD", Kind: exchange.KindPerp,
+		Bids: []exchange.Level{{Price: "99", Size: "1"}},
+		Asks: []exchange.Level{{Price: "101", Size: "1"}},
+	})
+	_, err := ex.PlaceOrder(context.Background(), exchange.OrderRequest{
+		Symbol: "BTCUSD", Kind: exchange.KindSpot, Side: exchange.SideBuy, Price: "101", Size: "1",
+	})
+	if err == nil {
+		t.Fatal("want kind mismatch")
+	}
+}
+
+func TestFake_SpotIOC(t *testing.T) {
+	ex := fake.New("grvt", nil)
+	ex.SetBook(exchange.Book{
+		Symbol: "BTCUSD", Kind: exchange.KindSpot,
+		Bids: []exchange.Level{{Price: "99", Size: "1"}},
+		Asks: []exchange.Level{{Price: "100", Size: "1"}},
+	})
+	ack, err := ex.PlaceOrder(context.Background(), exchange.OrderRequest{
+		Symbol: "BTCUSD", Kind: exchange.KindSpot, Side: exchange.SideSell, Size: "0.5",
+	})
+	if err != nil || ack.Status != "filled" {
+		t.Fatalf("%+v %v", ack, err)
 	}
 }

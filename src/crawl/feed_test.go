@@ -35,6 +35,66 @@ func TestParseLiveConfig(t *testing.T) {
 	}
 }
 
+func TestLoadLiveConfig_ETHUSD(t *testing.T) {
+	t.Chdir("../..")
+	cfg, err := crawl.LoadLiveConfig("configs/crawl-ethusd.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Output != "data/crawl/ethusd-live-60m.ndjson" || cfg.Config != "configs/craw-ethusd.json" || len(cfg.Feeds) != 3 {
+		t.Fatalf("%+v", cfg)
+	}
+	native, err := cfg.NativeSymbol("hyperliquid", "ETHUSD")
+	if err != nil || native != "ETH" {
+		t.Fatalf("hl: %q %v", native, err)
+	}
+	native, err = cfg.NativeSymbol("grvt", "ETHUSD")
+	if err != nil || native != "ETH_USDT_Perp" {
+		t.Fatalf("grvt: %q %v", native, err)
+	}
+	if _, err := cfg.NativeSymbol("hyperliquid", "ETHBTC"); err == nil {
+		t.Fatal("ETHBTC must not be in symbol_map")
+	}
+}
+
+func TestLoadLiveConfig_SOLUSD(t *testing.T) {
+	t.Chdir("../..")
+	cfg, err := crawl.LoadLiveConfig("configs/crawl-solusd.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Output != "data/crawl/solusd-live-60m.ndjson" || cfg.Config != "configs/craw-solusd.json" || len(cfg.Feeds) != 3 {
+		t.Fatalf("%+v", cfg)
+	}
+	native, err := cfg.NativeSymbol("hyperliquid", "SOLUSD")
+	if err != nil || native != "SOL" {
+		t.Fatalf("hl: %q %v", native, err)
+	}
+	native, err = cfg.NativeSymbol("grvt", "SOLUSD")
+	if err != nil || native != "SOL_USDT_Perp" {
+		t.Fatalf("grvt: %q %v", native, err)
+	}
+}
+
+func TestLoadLiveConfig_TRUMPUSD(t *testing.T) {
+	t.Chdir("../..")
+	cfg, err := crawl.LoadLiveConfig("configs/crawl-trumpusd.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Output != "data/crawl/trumpusd-live-120m.ndjson" || cfg.Config != "configs/craw-trumpusd.json" || len(cfg.Feeds) != 3 {
+		t.Fatalf("%+v", cfg)
+	}
+	native, err := cfg.NativeSymbol("hyperliquid", "TRUMPUSD")
+	if err != nil || native != "TRUMP" {
+		t.Fatalf("hl: %q %v", native, err)
+	}
+	native, err = cfg.NativeSymbol("grvt", "TRUMPUSD")
+	if err != nil || native != "TRUMP_USDT_Perp" {
+		t.Fatalf("grvt: %q %v", native, err)
+	}
+}
+
 func TestParseLiveConfig_InvalidMethod(t *testing.T) {
 	_, err := crawl.ParseLiveConfigJSON([]byte(`{
 		"output":"x.ndjson",

@@ -1,12 +1,32 @@
 let series = null;
 let xDomainFull = null;
+let xExtentAll = null;
+let xZoomStack = [];
 
 function esc(s){ return String(s??"").replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":"&#39;"}[c])); }
 
-function sliderRow(id, label, value, min, max, step) {
+function unitsFromSymbol(sym) {
+  const s = String(sym || '').toUpperCase();
+  const quotes = ['USDT', 'USDC', 'USD'];
+  for (const q of quotes) {
+    if (s.endsWith(q) && s.length > q.length) {
+      return { base: s.slice(0, -q.length), quote: q };
+    }
+  }
+  return { base: s || 'base', quote: 'USD' };
+}
+
+function currentUnits() {
+  const el = document.getElementById('symbol');
+  const fromForm = el && el.value;
+  return unitsFromSymbol(fromForm || (series && series.symbol) || '');
+}
+
+function sliderRow(id, label, unit, value, min, max, step) {
   return '<tr><th>'+esc(label)+'</th><td>'
     +'<input type="range" id="'+id+'_r" min="'+min+'" max="'+max+'" step="'+step+'" value="'+value+'"/> '
     +'<input type="number" id="'+id+'" step="'+step+'" value="'+value+'"/>'
+    + (unit ? ' <span class="unit">'+esc(unit)+'</span>' : '')
     +'</td></tr>';
 }
 
@@ -41,16 +61,17 @@ function renderCfg(s) {
   const lat = c.latency_penalty ?? 0.05;
   const pff = c.partial_fill_factor ?? 0.95;
   const mif = c.max_in_flight ?? 4;
+  const u = unitsFromSymbol(s.symbol || document.getElementById('symbol').value);
   const sizeMax = Math.max(0.001, maxSize*10);
   document.getElementById('knobs').innerHTML =
-    sliderRow('min_size', 'min_size', minSize, 0, sizeMax, 0.000001) +
-    sliderRow('max_size', 'max_size', maxSize, 0, sizeMax, 0.000001) +
-    sliderRow('min_gap', 'min_gap', minGap, 0, Math.max(2, minGap*10), 0.01) +
-    sliderRow('fee_bps_per_leg', 'fee_bps_per_leg', fee, 0, Math.max(50, fee*10), 0.1) +
-    sliderRow('latency_penalty', 'latency_penalty', lat, 0, Math.max(1, lat*10), 0.01) +
-    sliderRow('partial_fill_factor', 'partial_fill_factor', pff, 0, 1, 0.01) +
-    sliderRow('max_in_flight', 'max_in_flight', mif, 1, Math.max(16, mif*2), 1) +
-    '<tr><th>max_book_age</th><td><input type="text" id="max_book_age" value="'+esc(c.max_book_age||'2s')+'"/></td></tr>';
+    sliderRow('min_size', 'min_size', u.base, minSize, 0, sizeMax, 0.000001) +
+    sliderRow('max_size', 'max_size', u.base, maxSize, 0, sizeMax, 0.000001) +
+    sliderRow('min_gap', 'min_gap', u.quote, minGap, 0, Math.max(2, minGap*10), 0.01) +
+    sliderRow('fee_bps_per_leg', 'fee_bps_per_leg', 'bps (1 bps = 0.01%)', fee, 0, Math.max(50, fee*10), 0.1) +
+    sliderRow('latency_penalty', 'latency_penalty', u.quote+'/'+u.base, lat, 0, Math.max(1, lat*10), 0.01) +
+    sliderRow('partial_fill_factor', 'partial_fill_factor', 'fraction (0–1)', pff, 0, 1, 0.01) +
+    sliderRow('max_in_flight', 'max_in_flight', 'count', mif, 1, Math.max(16, mif*2), 1) +
+    '<tr><th>max_book_age</th><td><input type="text" id="max_book_age" value="'+esc(c.max_book_age||'2s')+'"/> <span class="unit">duration</span></td></tr>';
   ['min_size','max_size','min_gap','fee_bps_per_leg','latency_penalty','partial_fill_factor','max_in_flight'].forEach(bindSlider);
   renderFees(s);
   document.getElementById('venue_a').onchange = () => renderFees(s);
@@ -89,8 +110,12 @@ function renderFees(s) {
       fees[v] = { buy: emptySideFee(fallback), sell: emptySideFee(fallback) };
     }
   }
+  const quote = currentUnits().quote;
+  const fieldUnits = { rate_bps: 'bps', fixed: quote, commission_bps: 'bps', commission_fixed: quote };
   const keys = Object.keys(fees).sort();
-  const head = '<thead><tr><th>venue fees</th><th>side</th>' + feeFields.map(k => '<th>'+k+'</th>').join('') + '</tr></thead>';
+  const head = '<thead><tr><th>venue fees</th><th>side</th>' + feeFields.map(k =>
+    '<th>'+k+' <span class="unit">'+esc(fieldUnits[k]||'')+'</span></th>'
+  ).join('') + '</tr></thead>';
   const body = '<tbody>' + keys.flatMap(v => feeSides.map(side => {
     const f = (fees[v] && fees[v][side]) || {};
     return '<tr data-fee-venue="'+esc(v)+'" data-fee-side="'+side+'"><th>'+esc(v)+'</th><td>'+side+'</td>' +
@@ -136,12 +161,61 @@ function overlayFromForm() {
   };
 }
 
+function formNum(id, fallback) {
+  const el = document.getElementById(id);
+  const n = el ? parseFloat(el.value) : NaN;
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function sideFeeFromForm(venue, side) {
+  let found = null;
+  document.querySelectorAll('[data-fee-venue][data-fee-side="'+side+'"]').forEach(tr => {
+    if (tr.getAttribute('data-fee-venue') === venue) found = tr;
+  });
+  if (!found) {
+    return emptySideFee(formNum('fee_bps_per_leg', 0));
+  }
+  const o = emptySideFee(0);
+  found.querySelectorAll('[data-fee-field]').forEach(el => {
+    o[el.getAttribute('data-fee-field')] = feeNum(el.value);
+  });
+  return o;
+}
+
+function feeCostUSD(fee, price, size) {
+  return price * size * ((fee.rate_bps || 0) + (fee.commission_bps || 0)) / 10000
+    + (fee.fixed || 0) + (fee.commission_fixed || 0);
+}
+
+// Tradable gap (quote): (fee + latency) / size = fee/size + latency_penalty.
+// Trade when gap is above this (and above min_gap).
+function tradableGapUSD(st) {
+  const ex = st && st.explain;
+  if (ex && Number(ex.size_modeled) > 0) {
+    return (Number(ex.fee) + Number(ex.latency)) / Number(ex.size_modeled);
+  }
+  const g = st && st.gap;
+  if (!g || !g.ready) return null;
+  const buyPx = parseFloat(g.buy_ask);
+  const sellPx = parseFloat(g.sell_bid);
+  const maxSz = formNum('max_size', 0);
+  const pffRaw = formNum('partial_fill_factor', 1);
+  const lat = formNum('latency_penalty', 0);
+  if (!(buyPx > 0) || !(sellPx > 0) || !(maxSz > 0)) return null;
+  const pff = pffRaw > 0 && pffRaw <= 1 ? pffRaw : 1;
+  const size = maxSz * pff;
+  const buyFee = feeCostUSD(sideFeeFromForm(g.buy_venue, 'buy'), buyPx, size);
+  const sellFee = feeCostUSD(sideFeeFromForm(g.sell_venue, 'sell'), sellPx, size);
+  return (buyFee + sellFee) / size + lat;
+}
+
 function draw() {
   const s = series;
   const svg = d3.select('#chart');
   svg.selectAll('*').remove();
   const steps = (s && s.steps) || [];
-  document.getElementById('realized').textContent = 'realized ' + (s && s.realized ? s.realized : '0');
+  const u = currentUnits();
+  document.getElementById('realized').textContent = 'realized ' + (s && s.realized ? s.realized : '0') + ' ' + u.quote;
   if (!steps.length) {
     drawSignals();
     return;
@@ -150,20 +224,23 @@ function draw() {
     t: new Date(st.time),
     gap: st.gap && st.gap.ready ? st.gap.value : null,
     pnl: st.cumulative_pnl,
+    tradable: tradableGapUSD(st),
     raw: st,
   }));
+  if (!xExtentAll) xExtentAll = d3.extent(data, d => d.t);
+  if (!xDomainFull) xDomainFull = xExtentAll.slice();
   const w = Math.max(640, document.querySelector('.panel').clientWidth - 32);
-  const h = 320, m = {top: 16, right: 56, bottom: 64, left: 52};
+  const h = 320, m = {top: 18, right: 56, bottom: 64, left: 52};
   svg.attr('width', w).attr('height', h);
   const innerW = w - m.left - m.right;
   const innerH = h - m.top - m.bottom;
   const g = svg.append('g').attr('transform', 'translate('+m.left+','+m.top+')');
 
-  if (!xDomainFull) xDomainFull = d3.extent(data, d => d.t);
   const x = d3.scaleTime().domain(xDomainFull).range([0, innerW]);
   const gaps = data.map(d => d.gap).filter(v => v != null);
+  const tradables = data.map(d => d.tradable).filter(v => v != null);
   const pnls = data.map(d => d.pnl);
-  const gapAbs = Math.max(1e-9, d3.max(gaps, v => Math.abs(v)) || 1e-9);
+  const gapAbs = Math.max(1e-9, d3.max(gaps.concat(tradables), v => Math.abs(v)) || 1e-9);
   const pnlAbs = Math.max(1e-9, d3.max(pnls, v => Math.abs(v)) || 1e-9);
   const gz = parseFloat(document.getElementById('gapZoom').value) || 1;
   const pz = parseFloat(document.getElementById('pnlZoom').value) || 1;
@@ -173,49 +250,115 @@ function draw() {
   g.append('g').attr('transform','translate(0,'+innerH+')').call(d3.axisBottom(x).ticks(6)).selectAll('text').attr('fill','#94a3b8');
   g.append('g').call(d3.axisLeft(yGap).ticks(5)).selectAll('text').attr('fill','#fbbf24');
   g.append('g').attr('transform','translate('+innerW+',0)').call(d3.axisRight(yPnl).ticks(5)).selectAll('text').attr('fill','#86efac');
+  g.append('text').attr('x', 0).attr('y', -5).attr('fill', '#fbbf24').attr('font-size', 10).text('gap '+u.quote);
+  g.append('text').attr('x', 72).attr('y', -5).attr('fill', '#c084fc').attr('font-size', 10).text('tradable (fee+lat)/size');
+  g.append('text').attr('x', innerW).attr('y', -5).attr('text-anchor', 'end').attr('fill', '#86efac').attr('font-size', 10).text('pnl '+u.quote);
 
   const lineGap = d3.line().defined(d => d.gap != null).x(d => x(d.t)).y(d => yGap(d.gap));
+  const lineT = d3.line().defined(d => d.tradable != null).x(d => x(d.t)).y(d => yGap(d.tradable));
   const linePnl = d3.line().x(d => x(d.t)).y(d => yPnl(d.pnl));
-  g.append('path').datum(data).attr('fill','none').attr('stroke','#fbbf24').attr('stroke-width',1.5).attr('d', lineGap);
-  g.append('path').datum(data).attr('fill','none').attr('stroke','#86efac').attr('stroke-width',1.5).attr('d', linePnl);
+  svg.select('defs').remove();
+  svg.append('defs').append('clipPath').attr('id', 'simPlotClip')
+    .append('rect').attr('width', innerW).attr('height', innerH);
+  const plot = g.append('g').attr('clip-path', 'url(#simPlotClip)');
+  plot.append('path').datum(data).attr('fill','none').attr('stroke','#fbbf24').attr('stroke-width',1.5).attr('d', lineGap);
+  plot.append('path').datum(data).attr('fill','none').attr('stroke','#c084fc').attr('stroke-width',1.2).attr('stroke-dasharray','5 3').attr('d', lineT);
+  plot.append('path').datum(data).attr('fill','none').attr('stroke','#86efac').attr('stroke-width',1.5).attr('d', linePnl);
 
-  g.selectAll('circle.sig').data(data.filter(d => d.raw.signal)).enter().append('circle')
+  plot.selectAll('circle.sig').data(data.filter(d => d.raw.signal)).enter().append('circle')
     .attr('class','sig')
     .attr('cx', d => x(d.t)).attr('cy', d => yGap(d.gap != null ? d.gap : 0))
     .attr('r', 4)
     .attr('fill', d => d.raw.signal.kind === 'decision' ? '#34d399' : '#f87171');
 
   const tip = document.getElementById('tip');
-  g.selectAll('rect.hit').data(data).enter().append('rect')
-    .attr('class','hit').attr('x', (d,i) => {
-      const next = data[i+1] ? x(data[i+1].t) : innerW;
-      const prev = i>0 ? x(data[i-1].t) : 0;
-      return (x(d.t)+prev)/2;
-    })
-    .attr('width', (d,i) => {
-      const next = data[i+1] ? x(data[i+1].t) : innerW;
-      const prev = i>0 ? x(data[i-1].t) : 0;
-      return Math.max(4, (next - prev)/2);
-    })
-    .attr('y', 0).attr('height', innerH).attr('fill', 'transparent')
-    .on('mousemove', (ev, d) => {
-      const st = d.raw;
-      tip.style.display = 'block';
-      tip.style.left = (ev.pageX+12)+'px';
-      tip.style.top = (ev.pageY+12)+'px';
-      tip.innerHTML = hoverHTML(st);
-    })
-    .on('mouseleave', () => { tip.style.display='none'; });
+  const showTip = (ev, d) => {
+    if (!d) { tip.style.display = 'none'; return; }
+    tip.style.display = 'block';
+    tip.style.left = (ev.pageX+12)+'px';
+    tip.style.top = (ev.pageY+12)+'px';
+    tip.innerHTML = hoverHTML(d.raw);
+  };
+
+  const brushMain = d3.brushX().extent([[0,0],[innerW, innerH]]).on('end', ev => {
+    if (!ev.sourceEvent) return;
+    if (!ev.selection) return;
+    const [a, b] = ev.selection;
+    if (Math.abs(b - a) < 8) {
+      g.select('.brush-main').call(brushMain.move, null);
+      return;
+    }
+    const next = ev.selection.map(x.invert);
+    if (next[0] > next[1]) next.reverse();
+    zoomInTime(next);
+  });
+  const brushG = g.append('g').attr('class', 'brush brush-main').call(brushMain);
+  brushG.on('mousemove', ev => {
+    const [mx] = d3.pointer(ev, g.node());
+    showTip(ev, nearestByX(data, x, mx));
+  }).on('mouseleave', () => { tip.style.display = 'none'; });
+  brushG.on('dblclick', ev => {
+    ev.preventDefault();
+    ev.stopPropagation();
+    zoomOutTime();
+  });
 
   const brushH = 28;
-  const bx = d3.scaleTime().domain(d3.extent(data, d => d.t)).range([0, innerW]);
-  const brush = d3.brushX().extent([[0,0],[innerW, brushH]]).on('end', ev => {
-    if (!ev.selection) { xDomainFull = d3.extent(data, d => d.t); draw(); return; }
-    xDomainFull = ev.selection.map(bx.invert);
+  const bx = d3.scaleTime().domain(xExtentAll).range([0, innerW]);
+  const overview = svg.append('g').attr('transform','translate('+m.left+','+(h-brushH-8)+')');
+  overview.append('rect').attr('width', innerW).attr('height', brushH).attr('fill', '#0f1419').attr('stroke', '#243044');
+  const yMini = d3.scaleLinear().domain([-gapAbs, gapAbs]).range([brushH-2, 1]);
+  overview.append('path').datum(data).attr('fill','none').attr('stroke','#fbbf24').attr('stroke-width',1)
+    .attr('d', d3.line().defined(d => d.gap != null).x(d => bx(d.t)).y(d => yMini(d.gap)));
+  const brushCtx = d3.brushX().extent([[0,0],[innerW, brushH]]).on('end', ev => {
+    if (!ev.sourceEvent) return;
+    if (!ev.selection) {
+      zoomResetTime();
+      return;
+    }
+    const next = ev.selection.map(bx.invert);
+    if (next[0] > next[1]) next.reverse();
+    xZoomStack = [];
+    xDomainFull = next;
     draw();
   });
-  svg.append('g').attr('transform','translate('+m.left+','+(h-brushH-8)+')').call(brush);
+  const ctxG = overview.append('g').attr('class', 'brush').call(brushCtx);
+  const sel = xDomainFull.map(bx);
+  if (sel[0] > sel[1]) sel.reverse();
+  ctxG.call(brushCtx.move, sel);
   drawSignals();
+}
+
+function nearestByX(data, xScale, px) {
+  if (!data.length) return null;
+  const t = +xScale.invert(px);
+  let lo = 0, hi = data.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (+data[mid].t < t) lo = mid + 1;
+    else hi = mid;
+  }
+  let best = data[lo];
+  if (lo > 0 && Math.abs(+data[lo-1].t - t) < Math.abs(+best.t - t)) best = data[lo-1];
+  return best;
+}
+
+function zoomInTime(domain) {
+  if (xDomainFull) xZoomStack.push(xDomainFull.slice());
+  xDomainFull = domain;
+  draw();
+}
+
+function zoomOutTime() {
+  if (xZoomStack.length) xDomainFull = xZoomStack.pop();
+  else xDomainFull = xExtentAll ? xExtentAll.slice() : null;
+  draw();
+}
+
+function zoomResetTime() {
+  xZoomStack = [];
+  xDomainFull = xExtentAll ? xExtentAll.slice() : null;
+  draw();
 }
 
 function fmtN(v, d) {
@@ -227,10 +370,19 @@ function fmtN(v, d) {
 function hoverHTML(st) {
   const a = st.venue_a || {}, b = st.venue_b || {};
   const g = st.gap;
+  const u = currentUnits();
   const gapTxt = g && g.ready ? fmtN(g.value, 4) : '—';
+  const tradable = tradableGapUSD(st);
+  const above = g && g.ready && tradable != null && g.value > tradable;
   let html = '<div class="tip-time">'+esc(st.time)+'</div>'
-    + '<div>gap '+esc(gapTxt)+' · pnl '+esc(fmtN(st.cumulative_pnl, 6))+'</div>'
-    + '<div>'+esc(a.venue)+' ask '+esc(a.best_ask)+' × '+esc(a.best_ask_size)
+    + '<div>gap '+esc(gapTxt)+' '+u.quote+' · pnl '+esc(fmtN(st.cumulative_pnl, 6))+' '+u.quote+'</div>';
+  if (tradable != null) {
+    html += '<div>tradable '+esc(fmtN(tradable, 4))+' '+u.quote
+      + ' = (fee + latency) / size'
+      + (above ? ' · gap above → tradeable' : ' · gap at/below → miss')
+      + '</div>';
+  }
+  html += '<div>'+esc(a.venue)+' ask '+esc(a.best_ask)+' × '+esc(a.best_ask_size)
     + ' / bid '+esc(a.best_bid)+' × '+esc(a.best_bid_size)+'</div>'
     + '<div>'+esc(b.venue)+' ask '+esc(b.best_ask)+' × '+esc(b.best_ask_size)
     + ' / bid '+esc(b.best_bid)+' × '+esc(b.best_bid_size)+'</div>'
@@ -238,27 +390,27 @@ function hoverHTML(st) {
   const ex = st.explain;
   if (ex) {
     html += '<div class="tip-formula">'+esc(ex.formula)+'</div>';
-    html += '<div>volume '+esc(fmtN(ex.size, 8))
-      + (ex.size_modeled && ex.size_modeled !== ex.size ? ' (modeled '+esc(fmtN(ex.size_modeled, 8))+')' : '')
+    html += '<div>volume '+esc(fmtN(ex.size, 8))+' '+u.base
+      + (ex.size_modeled && ex.size_modeled !== ex.size ? ' (modeled '+esc(fmtN(ex.size_modeled, 8))+' '+u.base+')' : '')
       + '</div>';
     (ex.legs || []).forEach(leg => {
       html += '<div class="tip-leg"><strong>'+esc(leg.side)+'</strong> '+esc(leg.venue)
-        + ' '+esc(leg.book)+' @ '+esc(leg.price)+' × '+esc(leg.size)
-        + '<br/>notional '+esc(fmtN(leg.notional, 6))
-        + ' · fee '+esc(fmtN(leg.fee, 8))
-        + ' (rate '+esc(fmtN(leg.rate_bps, 4))+'bps='+esc(fmtN(leg.rate_fee, 8))
-        + (leg.fixed ? ' + fixed '+esc(fmtN(leg.fixed, 8)) : '')
-        + (leg.commission_bps ? ' + comm '+esc(fmtN(leg.commission_bps, 4))+'bps='+esc(fmtN(leg.commission_rate, 8)) : '')
-        + (leg.commission_fixed ? ' + comm_fixed '+esc(fmtN(leg.commission_fixed, 8)) : '')
+        + ' '+esc(leg.book)+' @ '+esc(leg.price)+' '+u.quote+' × '+esc(leg.size)+' '+u.base
+        + '<br/>notional '+esc(fmtN(leg.notional, 6))+' '+u.quote
+        + ' · fee '+esc(fmtN(leg.fee, 8))+' '+u.quote
+        + ' (rate '+esc(fmtN(leg.rate_bps, 4))+' bps='+esc(fmtN(leg.rate_fee, 8))+' '+u.quote
+        + (leg.fixed ? ' + fixed '+esc(fmtN(leg.fixed, 8))+' '+u.quote : '')
+        + (leg.commission_bps ? ' + comm '+esc(fmtN(leg.commission_bps, 4))+' bps='+esc(fmtN(leg.commission_rate, 8))+' '+u.quote : '')
+        + (leg.commission_fixed ? ' + comm_fixed '+esc(fmtN(leg.commission_fixed, 8))+' '+u.quote : '')
         + ')</div>';
     });
-    html += '<div>gross '+esc(fmtN(ex.gross, 8))
-      + ' − fee '+esc(fmtN(ex.fee, 8))
-      + ' − latency '+esc(fmtN(ex.latency, 8))
-      + ' = <strong>net '+esc(fmtN(ex.net, 8))+'</strong></div>';
+    html += '<div>gross '+esc(fmtN(ex.gross, 8))+' '+u.quote
+      + ' − fee '+esc(fmtN(ex.fee, 8))+' '+u.quote
+      + ' − latency '+esc(fmtN(ex.latency, 8))+' '+u.quote
+      + ' = <strong>net '+esc(fmtN(ex.net, 8))+' '+u.quote+'</strong></div>';
   } else if (g && g.ready) {
     html += '<div class="tip-formula">gap = sell_bid('+esc(g.sell_venue)+') - buy_ask('+esc(g.buy_venue)
-      + ') = '+esc(g.sell_bid)+' - '+esc(g.buy_ask)+' = '+esc(gapTxt)+'</div>';
+      + ') = '+esc(g.sell_bid)+' - '+esc(g.buy_ask)+' = '+esc(gapTxt)+' '+u.quote+'</div>';
   }
   return html;
 }
@@ -353,6 +505,16 @@ function p50(arr) {
   return s[Math.floor((s.length - 1) / 2)];
 }
 
+function arrMin(arr) {
+  if (!arr.length) return null;
+  return Math.min.apply(null, arr);
+}
+
+function arrMax(arr) {
+  if (!arr.length) return null;
+  return Math.max.apply(null, arr);
+}
+
 function fmtMsVal(ms) {
   if (ms == null) return '—';
   if (Math.abs(ms) < 1000) return ms + 'ms';
@@ -366,8 +528,9 @@ function reasonDetail(key, row, stats, venueA, venueB) {
   }
   if (key === 'negative_edge') {
     const f = v => v == null ? '—' : Number(v).toFixed(4);
-    return venueA + '→' + venueB + ' n=' + stats.netAB.length + ' p50 net ' + f(p50(stats.netAB))
-      + ' · ' + venueB + '→' + venueA + ' n=' + stats.netBA.length + ' p50 net ' + f(p50(stats.netBA));
+    const netRange = (arr) => 'min ' + f(arrMin(arr)) + ' p50 ' + f(p50(arr)) + ' max ' + f(arrMax(arr)) + ' USD';
+    return venueA + '→' + venueB + ' n=' + stats.netAB.length + ' ' + netRange(stats.netAB)
+      + ' · ' + venueB + '→' + venueA + ' n=' + stats.netBA.length + ' ' + netRange(stats.netBA);
   }
   return (row.examples || []).join(' · ') || '—';
 }
@@ -484,6 +647,8 @@ async function load(url, opt) {
 async function refresh() {
   series = await load('/sim?format=json');
   xDomainFull = null;
+  xExtentAll = null;
+  xZoomStack = [];
   document.getElementById('msg').textContent = series.message || '';
   renderCfg(series);
   draw();
@@ -496,16 +661,20 @@ document.getElementById('apply').onclick = async () => {
     body: JSON.stringify(overlayFromForm()),
   });
   xDomainFull = null;
+  xExtentAll = null;
+  xZoomStack = [];
   document.getElementById('msg').textContent = series.message || '';
   renderCfg(series);
   draw();
 };
 document.getElementById('gapZoom').oninput = draw;
 document.getElementById('pnlZoom').oninput = draw;
+document.getElementById('zoomOut').onclick = zoomOutTime;
 document.getElementById('resetScale').onclick = () => {
   document.getElementById('gapZoom').value = 1;
   document.getElementById('pnlZoom').value = 1;
-  xDomainFull = null;
+  xZoomStack = [];
+  xDomainFull = xExtentAll ? xExtentAll.slice() : null;
   draw();
 };
 refresh();

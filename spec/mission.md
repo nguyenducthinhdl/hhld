@@ -6,9 +6,9 @@ HHLD is a one-person trading system built for **capital efficiency and safety**.
 
 ## V1 success
 
-Detect arbitrage gaps across two venues, decide size and price in Trading Core, and **paper-trade** those decisions. Persist orders and PnL for audit. No live capital at risk until later phases explicitly allow it.
+Detect arbitrage gaps across two venues, decide size and price in Trading Core, and **paper-trade** those decisions. Persist orders and PnL for audit. No live capital at risk until later phases explicitly allow it ([P11](roadmap/p11.md) is local trading first, then gated venue writes).
 
-How paper arb works in detail: [trading.md](trading.md). Overall wiring (connections, books/deltas, automatic place): [architect.md](architect.md).
+How paper arb works in detail: [trading.md](trading.md). Durable fills and realized PnL: [ledger.md](ledger.md). Overall wiring (connections, books/deltas, automatic place): [architect.md](architect.md).
 
 Symbols are **multi-symbol from day one** (BTCUSD is the first concrete pair; others via config, not hard-coded into strategy logic).
 
@@ -28,7 +28,7 @@ An **exchange** is any tradable venue behind the `Exchange` interface: crypto bo
 
 ## Strategies (order)
 
-1. **Arbitrage** — trade a symbol between two **same-kind** venues (e.g. HL ↔ GRVT) when a gap appears; latency and networking risk are first-class.
+1. **Arbitrage** — trade a symbol between two **same-kind** venues (e.g. HL ↔ GRVT) when a gap appears; latency and networking risk are first-class. Execution styles: **taker-taker** (implemented paper path) and **maker-taker** (rest then hedge; investigation in [trading.md](trading.md)). Extra USD perps (ETHUSD, SOLUSD, TRUMPUSD) use their own crawl configs, not `default.json`.
 2. **Cross-venue hedge** — in some cases, hedge a **prediction-market leg** (up/down / Yes/No) against a **crypto venue leg** (Hyperliquid or GRVT perp/spot). Both legs are paper/live orders under one strategy decision; Risk and PnL must treat them as a linked hedge, not two independent trades.
 3. **Prediction** — forecasting / event-driven strategies on prediction-market venues; out of scope until arb (and preferably hedge paper path) is proven and audited.
 
@@ -54,6 +54,6 @@ All modules are interface-first for loose coupling, testing, and backtest/live s
 
 ## Non-goals (early phases)
 
-- Live capital / real order placement
+- Live capital / automatic real order placement (P11 is local trading + gated one-leg `hhld-place` smoke, not live arb)
 - Prediction strategy, Polymarket adapter, and prediction↔crypto hedge (interfaces must allow multi-leg / multi-venue hedges; implement later)
 - Heavy multi-instance or multi-region infra

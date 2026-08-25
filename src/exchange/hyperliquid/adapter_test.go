@@ -64,8 +64,8 @@ func TestAdapter_ReadOnlyOrders(t *testing.T) {
 	if _, err := ad.PlaceOrder(context.Background(), exchange.OrderRequest{}); !errors.Is(err, exchange.ErrReadOnly) {
 		t.Fatalf("place: %v", err)
 	}
-	if err := ad.CancelOrder(context.Background(), "x"); !errors.Is(err, exchange.ErrReadOnly) {
-		t.Fatalf("cancel: %v", err)
+	if _, err := ad.GetOrder(context.Background(), "x"); !errors.Is(err, exchange.ErrReadOnly) {
+		t.Fatalf("get: %v", err)
 	}
 	if _, err := ad.SnapshotBook(context.Background(), "NOPE"); err == nil {
 		t.Fatal("want missing symbol")

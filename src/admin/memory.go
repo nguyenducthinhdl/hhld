@@ -2,6 +2,7 @@ package admin
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"sync"
@@ -58,6 +59,9 @@ func (m *Memory) ListOrders(ctx context.Context, f Filter) ([]OrderRecord, error
 		if f.HedgeID != "" && o.HedgeID != f.HedgeID {
 			continue
 		}
+		if f.Env != "" && o.Env != f.Env {
+			continue
+		}
 		if f.Venue != "" && o.Venue != f.Venue {
 			continue
 		}
@@ -99,6 +103,7 @@ func RecordPaperDecision(ctx context.Context, a Auditor, tracker pnl.Tracker, d 
 		orderID := ""
 		clientID := fmt.Sprintf("%s-%d", d.TraceID, r.Index)
 		ts := time.Now().UTC()
+		errText := ""
 		if r.Err == nil {
 			status = r.Ack.Status
 			if status == "" {
@@ -108,6 +113,11 @@ func RecordPaperDecision(ctx context.Context, a Auditor, tracker pnl.Tracker, d 
 			clientID = r.Ack.ClientOrderID
 			if !r.Ack.Time.IsZero() {
 				ts = r.Ack.Time
+			}
+		} else {
+			errText = r.Err.Error()
+			if errors.Is(r.Err, context.DeadlineExceeded) || errors.Is(r.Err, context.Canceled) || errors.Is(r.Err, exchange.ErrUnknownAck) {
+				status = "unknown"
 			}
 		}
 		rec := OrderRecord{
@@ -121,7 +131,9 @@ func RecordPaperDecision(ctx context.Context, a Auditor, tracker pnl.Tracker, d 
 			Side:          r.Leg.Side,
 			Price:         r.Leg.Price,
 			Size:          r.Leg.Size,
+			TIF:           exchange.TIFIOC,
 			Status:        status,
+			Error:         errText,
 			Time:          ts,
 		}
 		if err := a.RecordOrder(ctx, rec); err != nil {
