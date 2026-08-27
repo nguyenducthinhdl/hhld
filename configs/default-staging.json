@@ -17,10 +17,10 @@
       "trading": {
         "strategy": "cross-venue-arb",
         "kind": "perp",
-        "min_size": "0.0001",
-        "max_size": "0.0003",
-        "min_value": "10",
-        "max_value": "50",
+        "min_size": "0.001",
+        "max_size": "0.002",
+        "min_value": "100",
+        "max_value": "250",
         "min_gap": 0.3,
         "order_interval": "1s"
       },
@@ -42,11 +42,56 @@
               "rate_bps": 4.5
             }
           },
-          "budget": "50"
+          "budget": "250"
         },
         "grvt": {
           "symbol_name": "BTC_USDT_Perp",
           "spot_symbol_name": "BTC_USDT",
+          "fees": {
+            "sell": {
+              "rate_bps": 4.5
+            },
+            "buy": {
+              "rate_bps": 4.5
+            }
+          },
+          "budget": "250"
+        }
+      }
+    },
+    {
+      "symbol": "TRUMPUSD",
+      "trading": {
+        "strategy": "cross-venue-arb",
+        "kind": "perp",
+        "min_size": "0.01",
+        "max_size": "10",
+        "min_value": "5",
+        "max_value": "50",
+        "min_gap": 0.000001,
+        "order_interval": "1s"
+      },
+      "risk": {
+        "fee_bps_per_leg": 5,
+        "latency_penalty": 0.05,
+        "partial_fill_factor": 0.95,
+        "max_book_age": "8s"
+      },
+      "venues": {
+        "hyperliquid": {
+          "symbol_name": "TRUMP",
+          "fees": {
+            "sell": {
+              "rate_bps": 4.5
+            },
+            "buy": {
+              "rate_bps": 4.5
+            }
+          },
+          "budget": "50"
+        },
+        "grvt": {
+          "symbol_name": "TRUMP_USDT_Perp",
           "fees": {
             "sell": {
               "rate_bps": 4.5
